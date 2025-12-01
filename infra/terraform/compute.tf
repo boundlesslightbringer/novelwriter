@@ -15,7 +15,7 @@ resource "aws_instance" "react-server" {
   instance_type               = "t3.small"
   subnet_id                   = aws_subnet.public.id
   key_name                    = data.aws_key_pair.react-server-ed25519.key_name
-  vpc_security_group_ids      = [aws_security_group.application.id]
+  vpc_security_group_ids      = [aws_security_group.frontend.id]
   iam_instance_profile        = aws_iam_instance_profile.react_server_profile.name
   associate_public_ip_address = true
 
@@ -53,6 +53,6 @@ resource "aws_lambda_function" "entity-miner" {
 
   vpc_config {
     subnet_ids         = [aws_subnet.private.id]
-    security_group_ids = [aws_security_group.application.id]
+    security_group_ids = [aws_security_group.backend.id]
   }
 }

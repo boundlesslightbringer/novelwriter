@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
         state.llm = ChatBedrockConverse(
             model_id="deepseek.v3-v1:0", 
             region_name=region,
-            temperature=0.8
+            temperature=0.2
         )
         
         logger.info("Resources initialized successfully.")
@@ -288,7 +288,3 @@ async def generate_story(
         "forecaster_response": forecaster_response,
         "story_continuation": completion_response
     }
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7000)
