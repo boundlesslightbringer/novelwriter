@@ -117,7 +117,7 @@ def get_template_from_dynamo(novel_name: str, template_type: str) -> dict:
 
 # --- Endpoints ---
 
-@app.get("/story")
+@app.get("/api/story")
 async def get_story(bucket: str, object_key: str):
     """Fetches a story object from an S3 bucket."""
     try:
@@ -130,7 +130,7 @@ async def get_story(bucket: str, object_key: str):
         logger.error(f"S3 Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/story")
+@app.post("/api/story")
 async def upload_story(request: StoryUploadRequest):
     """Uploads a story object to an S3 bucket."""
     try:
@@ -145,7 +145,7 @@ async def upload_story(request: StoryUploadRequest):
         logger.error(f"S3 Upload Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/templates")
+@app.get("/api/templates")
 async def get_prompt_template(novel_name: str, template_type: str):
     """Fetches prompt templates from DynamoDB."""
     try:
@@ -156,7 +156,7 @@ async def get_prompt_template(novel_name: str, template_type: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/similar_entities")
+@app.get("/api/similar_entities")
 async def get_similar_entities(query_text: str, n_results: int = 3):
     """Retrieves similar entity vectors from ChromaDB."""
     if not state.chroma_collection:
@@ -167,7 +167,7 @@ async def get_similar_entities(query_text: str, n_results: int = 3):
             query_texts=[query_text],
             n_results=n_results
         )
-        # Flattening results for easier consumption
+        
         entities = []
         if results and results['documents']:
             for i in range(len(results['documents'][0])):
@@ -181,18 +181,16 @@ async def get_similar_entities(query_text: str, n_results: int = 3):
         logger.error(f"ChromaDB Query Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/entity")
+@app.post("/api/entity")
 async def add_entity(request: EntityAddRequest):
     """Adds an entity manually to the ChromaDB."""
     if not state.chroma_collection:
         raise HTTPException(status_code=503, detail="ChromaDB service unavailable")
     
     try:
-        # Construct a document representation
         document_text = f"{request.entity}: {request.description}\nRelations: {request.key_relations}\nHistory: {request.history}"
         
-        # Using a simple ID generation strategy (timestamp) or user provided could be better
-        # For now, using entity name + timestamp to ensure uniqueness
+        # TODO: Change to use a more robust ID generation strategy
         doc_id = f"{request.entity}-{datetime.now().timestamp()}"
         
         state.chroma_collection.add(
@@ -205,7 +203,7 @@ async def add_entity(request: EntityAddRequest):
         logger.error(f"ChromaDB Add Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/generate")
+@app.get("/api/generate")
 async def generate_story(
     bucket: str, 
     story_key: str, 
