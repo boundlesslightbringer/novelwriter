@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project]
+name = "novelwriter"
+version = "0.1.0"
+description = "Write rich and intricate novels with an AI assistant!"
+requires-python = "==3.12.*"
+dependencies = [
+  "ruff == 0.12.*",
+  "pre-commit == 4.2.*",
+  "pydantic == 2.12.*"
+]
+
+authors = [
+{"name" = "Ameya Joshi", "email" = "kunae47@gmail.com"}
+]
+readme = "README.md"
+license = "BSD-3-Clause-Attribution"
+classifiers = [
+    "Development Status :: 1 - Planning"
+]
+
+[project.optional-dependencies]
+aws = [
+  "boto3>=1.34,<2",
+  "botocore>=1.34,<2",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+target-version = "py312"
+exclude = ["terraform/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "UP", "B", "I", "SIM"]
+ignore = ["F401", "E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+
