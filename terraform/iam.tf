@@ -25,6 +25,34 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
+# Policy to allow Lambda to read from S3
+resource "aws_iam_policy" "lambda_s3_read" {
+  name        = "lambda-s3-read-policy"
+  description = "Allows Lambda to read from S3 bucket"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Effect = "Allow"
+        Resource = [
+          aws_s3_bucket.stories.arn,
+          "${aws_s3_bucket.stories.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_s3_access" {
+  role       = aws_iam_role.entity_miner_lambda_role.name
+  policy_arn = aws_iam_policy.lambda_s3_read.arn
+}
+
 resource "aws_iam_role" "react_server_role" {
   name = "react-server-role"
 
@@ -63,6 +91,66 @@ resource "aws_iam_policy" "bedrock_access" {
 resource "aws_iam_role_policy_attachment" "react_server_bedrock_access" {
   role       = aws_iam_role.react_server_role.name
   policy_arn = aws_iam_policy.bedrock_access.arn
+}
+
+# Policy to allow react server to access S3
+resource "aws_iam_policy" "react_server_s3_access" {
+  name        = "react-server-s3-access-policy"
+  description = "Allows react server to access S3 bucket"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Effect = "Allow"
+        Resource = [
+          aws_s3_bucket.stories.arn,
+          "${aws_s3_bucket.stories.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "react_server_s3_access" {
+  role       = aws_iam_role.react_server_role.name
+  policy_arn = aws_iam_policy.react_server_s3_access.arn
+}
+
+# Policy to allow react server to access DynamoDB
+resource "aws_iam_policy" "react_server_dynamodb_access" {
+  name        = "react-server-dynamodb-access-policy"
+  description = "Allows react server to access DynamoDB"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ]
+        Effect = "Allow"
+        Resource = [
+          aws_dynamodb_table.prompt_templates.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "react_server_dynamodb_access" {
+  role       = aws_iam_role.react_server_role.name
+  policy_arn = aws_iam_policy.react_server_dynamodb_access.arn
 }
 
 resource "aws_iam_instance_profile" "react_server_profile" {

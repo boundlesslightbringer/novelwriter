@@ -36,7 +36,30 @@ variable "aws_secret_key" {
 
 variable "docdb_master_username" {
   description = ""
-  type = string
-  sensitive = false
-  default = "docdbadmin"
+  type        = string
+  sensitive   = false
+  default     = "docdbadmin"
+}
+
+variable "chroma_version" {
+  description = "Version of Chroma to deploy"
+  type        = string
+  default     = "0.6.3"
+}
+
+variable "chroma_server_auth_credentials" {
+  description = "Chroma authentication credentials (leave empty for no auth)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "chroma_server_auth_provider" {
+  description = "Chroma authentication provider"
+  type        = string
+  default     = ""
+  validation {
+    condition = contains(["", "chromadb.auth.token_authn.TokenAuthenticationServerProvider", "chromadb.auth.basic_authn.BasicAuthenticationServerProvider"], var.chroma_server_auth_provider)
+    error_message = "Must be empty or a valid Chroma auth provider."
+  }
 }

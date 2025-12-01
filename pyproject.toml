@@ -16,11 +16,13 @@ requires-python = "==3.12.*"
 dependencies = [
   "ruff == 0.14.*",
   "pre-commit == 4.2.*",
-  "pydantic == 2.12.*"
+  "pydantic == 2.12.*",
+  "boto3 == 1.41.*",
+  "langgraph == 1.*"
 ]
 
 authors = [
-  {name = "Ameya Joshi", email = "kunae47@gmail.com"}, # <-- Fixed this line
+  {name = "Ameya Joshi", email = "kunae47@gmail.com"},  
 ]
 readme = "README.md"
 license = "BSD-3-Clause-Attribution"

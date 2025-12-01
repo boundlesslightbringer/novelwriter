@@ -13,11 +13,11 @@ data "aws_ami" "amazon-linux-2" {
 resource "aws_instance" "react-server" {
   ami                         = data.aws_ami.amazon-linux-2.id
   instance_type               = "t3.small"
-  subnet_id                   = aws_subnet.private.id
+  subnet_id                   = aws_subnet.public.id
   key_name                    = data.aws_key_pair.react-server-ed25519.key_name
   vpc_security_group_ids      = [aws_security_group.application.id]
   iam_instance_profile        = aws_iam_instance_profile.react_server_profile.name
-  associate_public_ip_address = false
+  associate_public_ip_address = true
 
   user_data = <<-EOF
     #!/bin/bash
