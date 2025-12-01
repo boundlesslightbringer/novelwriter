@@ -1,0 +1,20 @@
+[Unit]
+Description=NovelWriter FastAPI Backend
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/novelwriter
+Environment="PATH=/home/ubuntu/novelwriter/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/home/ubuntu/novelwriter/.env
+
+# Run FastAPI using the production 'fastapi run' command
+ExecStart=/home/ubuntu/novelwriter/venv/bin/fastapi run src/webserver.py --port 7000
+
+# Restart the service if it crashes
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

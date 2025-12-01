@@ -1,133 +1,294 @@
 
+import json
+import logging
+from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import List, Optional
 
 import boto3
-from boto3.dynamodb.conditions import Key
+import chromadb
+from boto3.resources.base import ServiceResource
+from fastapi import FastAPI, HTTPException, Query
+from langchain_aws import ChatBedrockConverse
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import PromptTemplate
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-class TextCompletionPromptTemplate(BaseModel):
+# --- Pydantic Models ---
+
+class StoryUploadRequest(BaseModel):
+    text: str
+    filepath: str
+    bucket_name: str
+
+class EntityAddRequest(BaseModel):
+    entity: str
+    description: str
+    key_relations: str
+    history: str
+
+class PromptTemplateResponse(BaseModel):
     novel_name: str
     template_type: str
     prompt_template: str
-    date: datetime 
-    version: float
-    
-# Create a DynamoDB client using the default credentials and region
-dynamodb = boto3.client("dynamodb")
-# Get a resource object
-dynamodb_resource = boto3.resource("dynamodb")
+    date: str
+    version: str
 
-# Get the table
-prompt_templates_table = dynamodb_resource.Table('PromptTemplates')
+# --- Global State / Configuration ---
 
-def insert_template(item: TextCompletionPromptTemplate, table) -> bool:
-    """
-    Inserts an item into the PromptTemplates DynamoDB table.
+class AppState:
+    s3_client = None
+    prompt_templates_table = None
+    chroma_collection = None
+    llm = None
+    config = None
 
-    :param item: A TextCompletionPromptTemplate object.
-    :return: True if the item was inserted successfully, False otherwise.
-    """
+state = AppState()
+
+# --- Initialization ---
+
+def load_config():
     try:
-        response = table.put_item(
-            Item={
-                'novel_name': item.novel_name,
-                'template_type': item.template_type,
-                'prompt_template': item.prompt_template,
-                'date': item.date.strftime("%d-%m-%Y"),
-                'version': str(item.version)
-            }
-        )
-        print(f"Successfully inserted item. Response: {response}")
-        return True
-    except Exception as e:
-        print(f"Error inserting item: {e}")
-        return False
-    
-def get_template(novel_name: str, table, template_type: str) -> dict:
+        with open("config.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logger.error("config.json not found.")
+        raise
+    except json.JSONDecodeError:
+        logger.error("Error decoding config.json.")
+        raise
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Initializing resources...")
     try:
-        response = table.get_item(
-            Key={"novel_name": novel_name, 
-                    "template_type": template_type}
-        )
-        # print(f"Successfully retrieved template: {response}")
-        return response.get("Item")
-    except Exception as e:
-        print(f"Error fetching item: {e}")
-        return None
+        state.config = load_config()
+        aws_config = state.config.get("aws", {})
+        region = aws_config.get("region", "ap-south-1")
         
+        # AWS Resources
+        state.s3_client = boto3.client("s3", region_name=region)
+        dynamodb = boto3.resource("dynamodb", region_name=region)
+        state.prompt_templates_table = dynamodb.Table(state.config.get("aws").get("dynamodb_table"))
+        
+        # ChromaDB
+        try:
+            chroma_client = chromadb.HttpClient(host=state.config.get("chroma").get("host"), port=state.config.get("chroma").get("port"))
+            state.chroma_collection = chroma_client.get_or_create_collection(name=state.config.get("chroma").get("default_collection"))
+        except Exception as e:
+            logger.warning(f"Could not connect to ChromaDB: {e}. Vector search features will fail.")
+
+        # LLM
+        state.llm = ChatBedrockConverse(
+            model_id="deepseek.v3-v1:0", 
+            region_name=region,
+            temperature=0.8
+        )
+        
+        logger.info("Resources initialized successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize resources: {e}")
+        raise
     
-test_pair = TextCompletionPromptTemplate(
-    novel_name="first novel",
-    template_type="novel_completion", 
-    prompt_template="You are a creative and talented novel writer's assistant. Your task is to continue writing the story based on the provided context.\nUse the \"Relevant Information\" from the user's World Bible to ensure consistency with characters, plot points, and settings.\n\nRelevant Information from the World Bible:\n{context}\n\nSummary of the story so far:\n{chat_history}\n\nThe most recent part of the story:\n{input}\n\nContinue the story from here, weaving in the relevant information naturally:", 
-    date=datetime.today(), 
-    version=0.1
-    )
+    yield
 
-# res = insert_kv_pair(item = test_pair, 
-#                      table=prompt_templates_table)
+app = FastAPI(lifespan=lifespan, title="NovelWriter API")
 
-# res = get_template(novel_name="first novel",
-#                    template_type="novel_completion",
-#                    table=prompt_templates_table)
-# print(res.get("prompt_template"))
+# --- Helper Functions ---
 
-s3_client = boto3.client("s3")
-
-bucket_name = "novelwriter-stories-primary-26-11-2025"
-
-def upload_novel_text(text: str, filepath: str, bucket_name: str) -> bool:
+def get_template_from_dynamo(novel_name: str, template_type: str) -> dict:
     try:
-        s3_client.put_object(
-            Bucket=bucket_name,
-            Key=filepath,
-            Body=text,
+        response = state.prompt_templates_table.get_item(
+            Key={"novel_name": novel_name, "template_type": template_type}
+        )
+        item = response.get("Item")
+        if not item:
+            raise ValueError(f"Template not found for {novel_name} - {template_type}")
+        return item
+    except Exception as e:
+        logger.error(f"DynamoDB Error: {e}")
+        raise
+
+# --- Endpoints ---
+
+@app.get("/story")
+async def get_story(bucket: str, object_key: str):
+    """Fetches a story object from an S3 bucket."""
+    try:
+        response = state.s3_client.get_object(Bucket=bucket, Key=object_key)
+        content = response['Body'].read().decode('utf-8')
+        return {"content": content}
+    except state.s3_client.exceptions.NoSuchKey:
+        raise HTTPException(status_code=404, detail=f"Object '{object_key}' not found in bucket '{bucket}'")
+    except Exception as e:
+        logger.error(f"S3 Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/story")
+async def upload_story(request: StoryUploadRequest):
+    """Uploads a story object to an S3 bucket."""
+    try:
+        state.s3_client.put_object(
+            Bucket=request.bucket_name,
+            Key=request.filepath,
+            Body=request.text,
             ContentType="plain/text"
         )
+        return {"message": "Story uploaded successfully", "path": request.filepath}
     except Exception as e:
-        print(f"Error putting object: {e}")
-        return False
-    return True
+        logger.error(f"S3 Upload Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# res = upload_novel_text(
-#     text="""
-#     Chapter 1
-# 	Through the clamorous din of the battle: the feral orcs smashing their ugly swords and axes against shield and scale, delivering wound after wound to his men, crying out foul insults in their harsh tongues, Shedinn tried to focus on his prayer. A call to the Great Mother Tamara, the dragon Goddess of life, mercy, and healing, "Grant your eternal mercy to this champion of the dragonborn, restore spirit to him once again, and let him rise up faster and stronger, O Mother. He is a Daedendrainn, and the blood of the mighty Shalash, your great servant, runs strong through his veins. Give strength to my brother!" 
-#     And from unconsciousness did he rise up, strong! Balasar of the Daedendrainn clan: chieftain, favoured of the Gods, and King of the Shesten highlands and Ranhas shore. His great grey muscled frame towered a head above the rest of the combatants, righteous fury blazed like hot coal in his eyes, and the runes tattooed on his scales glowed a warm yellow - the colour of vitality. "I'm in your debt, brother", he thanked his younger sibling and picked up his heavy zweihander. Balasar had named it "Javok" - the dragonborn word for friend - after a dear very friend who had gifted it to him, who had long since died to a treacherous Yuan-Ti ambush in the Aass-Nag jungle. The greatsword had runes etched on its long blade as well, but instead of arcane spells they read his friend's name: Ssarki, who now was helping Balasar from the beyond, conjuring fiery tongues from its length that lashed at and licked the air with great hunger. Runes glowing a vibrant reddish-orange, Balasar ran into the heat of the battle, thundering steps kicking off fistfuls of dust towards the sky. He slashed and pierced, dodged and parried, and cleaved his way through the orc horde; his eyes set on their savage warchief who had hacked flesh from his arms and knocked him out seconds earlier. A few dragonborn fighters had then stepped in the way, allowing for Shedinn to work his healing spell. "FACE ME, SCUM!" yelled the mighty Balasar, and forcefully shoved a smaller orc aside, pointing his flaming Javok at the enemy.
-#     The wind picked up speed, invigorating Javok's fiery tendrils, as though the Gods themselves had cast their lot with the dragonborn. And why would they not? No hard lesson was worth the destruction these orcs would wreak if they won; these orcs from the barbarian Tymras lowlands, filled with all manner of uncivilized creatures whose sole purpose in life was loot and conquest. "Their Gods care only about subjugation. Mine bring life, order, and peace", thought Shedinn, whose resolve had grown unbreakable as rock, and he willed into existence a shimmering healer's staff made of spiritual energy - a boon from his Gods. He made a quick slapping motion with right hand, and his staff dissapeared; then reappeared mid-swing a few feet to the side of orcish warchief, and crashed into his skull-helmeted head. He ate the blow with a grunt, but this momentary distraction was all that Balasar needed. He charged and swung once from the right, burning through the brute's crude shoulder plate and buried Javok into his flesh. The flames leapt and enveloped the orc's left side, binding him with ropes of furious fire. The second strike came from the left immediately afterwards, this time aimed at his abdomen. The warchief deflected this blow with the head of greataxe. As orcs were wont to do, he screamed in frustration, and blood and rage filled his already-taut muscles, and strained against his crawling shackles. With a great heave, he broke through his fiery restraints, and swung his giant axe at Balasar. He missed, then the duel began. Swing by swing, cut by cut, Balasar pushed to the frontfoot, only to be taken by suprise by a powerful helmeted headbutt from the savage. Forehead split open, he reeled back from the impact, and was struck once again in his damaged left arm by swift lateral axe swing. Jets of blood mixed with the dust, and Balasar could taste iron in the air. He felt the strength leave his wounded arm, his grip loosened, and Balasar knew he must act quickly or face certain death. That would not do. Dropping his trusted friend, his Javok, he drew a curved dagger, sharp white steel on black iron, from his waistband and skillfully feigned a drop to one knee, and slashed at the orc's ankle, severing a tendon. "One", thought Balasar as his foe stumbled, and plunged the dagger upwards into his sternum, using his foe's bodyweight to drive the point of the dagger through the boiled leather armour and the ribs. "Two". He extracted his dagger in one smooth motion and felt the orc go limp, as a sudden torrent of bright red blood painted his thighs; "Got the heart...". Balasar snuffed out his foe's life with a swift cut to the jugular, and bellowed his victory for the world to hear.
-#     "Praise the Gods" thought Shedinn in exultation. He took in the sight of his mighty brother:"
-#     """,
-#     filepath=f"abs/prologue-{datetime.today().strftime('%d-%m-%Y')}.txt",
-#     bucket_name=bucket_name
-# )
-
-# print(res)
-
-s3_client = boto3.client('s3')
-
-def get_story_from_s3(bucket: str, object_key: str) -> str | None:
-    """
-    Fetches a story object from an S3 bucket and returns its content.
-
-    :param bucket: The name of the S3 bucket.
-    :param object_key: The key (path) of the object in the S3 bucket.
-    :return: The content of the story as a string, or None if an error occurs.
-    """
+@app.get("/templates")
+async def get_prompt_template(novel_name: str, template_type: str):
+    """Fetches prompt templates from DynamoDB."""
     try:
-        response = s3_client.get_object(Bucket=bucket, Key=object_key)
-        # The object's content is in the 'Body', which is a streaming object
-        story_content = response['Body'].read().decode('utf-8')
-        return story_content
-    except s3_client.exceptions.NoSuchKey:
-        print(f"Error: The object with key '{object_key}' does not exist in bucket '{bucket}'.")
-        return None
+        item = get_template_from_dynamo(novel_name, template_type)
+        return item
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        return None
+        raise HTTPException(status_code=500, detail=str(e))
 
-story = get_story_from_s3(bucket="novelwriter-stories-primary-26-11-2025",
-                          object_key="abs/prologue-27-11-2025.txt")
-if story:
-    print("--- Story Content ---")
-    print(story)
+@app.get("/similar_entities")
+async def get_similar_entities(query_text: str, n_results: int = 3):
+    """Retrieves similar entity vectors from ChromaDB."""
+    if not state.chroma_collection:
+        raise HTTPException(status_code=503, detail="ChromaDB service unavailable")
+    
+    try:
+        results = state.chroma_collection.query(
+            query_texts=[query_text],
+            n_results=n_results
+        )
+        # Flattening results for easier consumption
+        entities = []
+        if results and results['documents']:
+            for i in range(len(results['documents'][0])):
+                entities.append({
+                    "content": results['documents'][0][i],
+                    "metadata": results['metadatas'][0][i] if results['metadatas'] else {},
+                    "distance": results['distances'][0][i] if results['distances'] else None
+                })
+        return {"entities": entities}
+    except Exception as e:
+        logger.error(f"ChromaDB Query Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/entity")
+async def add_entity(request: EntityAddRequest):
+    """Adds an entity manually to the ChromaDB."""
+    if not state.chroma_collection:
+        raise HTTPException(status_code=503, detail="ChromaDB service unavailable")
+    
+    try:
+        # Construct a document representation
+        document_text = f"{request.entity}: {request.description}\nRelations: {request.key_relations}\nHistory: {request.history}"
+        
+        # Using a simple ID generation strategy (timestamp) or user provided could be better
+        # For now, using entity name + timestamp to ensure uniqueness
+        doc_id = f"{request.entity}-{datetime.now().timestamp()}"
+        
+        state.chroma_collection.add(
+            documents=[document_text],
+            metadatas=[{"source": "manual_entry", "entity": request.entity}],
+            ids=[doc_id]
+        )
+        return {"message": "Entity added successfully", "id": doc_id}
+    except Exception as e:
+        logger.error(f"ChromaDB Add Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/generate")
+async def generate_story(
+    bucket: str, 
+    story_key: str, 
+    novel_name: str = "first novel"
+):
+    """
+    Generates a story continuation.
+    1. Fetches current story from S3.
+    2. Retrieves templates (Forecaster & Completion).
+    3. Runs Forecaster chain (Vector Search + LLM).
+    4. Runs Completion chain (LLM).
+    """
+    if not state.llm:
+        raise HTTPException(status_code=503, detail="LLM service unavailable")
+
+    # 1. Fetch Story
+    try:
+        s3_response = state.s3_client.get_object(Bucket=bucket, Key=story_key)
+        story_content = s3_response['Body'].read().decode('utf-8')
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Could not fetch story: {e}")
+
+    # 2. Prepare Text Splitter & Docs
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=2048,
+        chunk_overlap=256,
+        length_function=len,
+        is_separator_regex=False,
+    )
+    docs = text_splitter.create_documents([story_content])
+    if not docs:
+        raise HTTPException(status_code=400, detail="Story content is empty or could not be split.")
+
+    current_fragment = docs[-1].page_content
+    context_fragment = "\n".join([doc.page_content for doc in docs[:-3]]) if len(docs) > 3 else ""
+
+    # 3. Fetch Templates
+    try:
+        forecaster_data = get_template_from_dynamo(novel_name, "forecaster")
+        completion_data = get_template_from_dynamo(novel_name, "novel_completion")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch templates: {e}")
+
+    forecaster_prompt = PromptTemplate.from_template(forecaster_data["prompt_template"])
+    completion_prompt = PromptTemplate.from_template(completion_data["prompt_template"])
+
+    # 4. Run Forecaster
+    # Vector Search for context
+    vector_search_results = ""
+    if state.chroma_collection:
+        try:
+            results = state.chroma_collection.query(query_texts=[current_fragment], n_results=3)
+            if results and results['documents']:
+                vector_search_results = "\n".join(results['documents'][0])
+        except Exception as e:
+            logger.warning(f"Vector search failed during generation: {e}")
+
+    forecaster_chain = forecaster_prompt | state.llm | StrOutputParser()
+    
+    try:
+        forecaster_response = forecaster_chain.invoke({
+            "vector_search_results": vector_search_results,
+            "current_story_fragment": current_fragment
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Forecaster chain failed: {e}")
+
+    # 5. Run Completion
+    completion_chain = completion_prompt | state.llm | StrOutputParser()
+    
+    try:
+        completion_response = completion_chain.invoke({
+            "current_story_fragment": context_fragment, 
+            "forecaster_response": forecaster_response
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Completion chain failed: {e}")
+
+    return {
+        "forecaster_response": forecaster_response,
+        "story_continuation": completion_response
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7000)

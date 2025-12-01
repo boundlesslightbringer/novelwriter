@@ -1,0 +1,12 @@
+{
+    "aws": {
+        "region": "ap-south-1",
+        "bucket_name": "novelwriter-stories-primary-26-11-2025",
+        "dynamodb_table": "PromptTemplates"
+    },
+    "chroma": {
+        "host": "localhost",
+        "port": 8000,
+        "default_collection": "abs"
+    }
+}

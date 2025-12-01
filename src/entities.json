@@ -1,0 +1,86 @@
+[
+    {
+        "entity": "Shedinn",
+        "description": "Person, Dragonborn, Brother of Balasar, Healer/Caster. Motivation: To heal and protect his brother Balasar; to bring life, order, and peace; to defeat the uncivilized orcs whose Gods seek subjugation.",
+        "key_relations": "Brother of Balasar",
+        "history": "None"
+    },
+    {
+        "entity": "Tamara",
+        "description": "Deity/God, Dragon Goddess of life, mercy, and healing (The Great Mother). Motivation: To grant mercy and strength to her champion (Balasar) and her followers (Shedinn).",
+        "key_relations": "Worshipped by Shedinn and Balasar",
+        "history": "None"
+    },
+    {
+        "entity": "Balasar",
+        "description": "Person, Dragonborn, Brother of Shedinn, Chieftain/King, Warrior. Motivation: To avenge the injury inflicted by the orc warchief; to defeat the orc horde and their leader; to protect his lands and people from the destruction the orcs would wreak.",
+        "key_relations": "Brother of Shedinn, King of Shesten and Ranhas",
+        "history": "Injured by Orc Warchief, healed by Shedinn"
+    },
+    {
+        "entity": "Daedendrainn",
+        "description": "Clan/Group, Balasar and Shedinn's clan.",
+        "key_relations": "Clan of Balasar and Shedinn",
+        "history": "None"
+    },
+    {
+        "entity": "Shalash",
+        "description": "Person (Historical), Great servant of Tamara, Ancestor of Balasar.",
+        "key_relations": "Ancestor of Balasar",
+        "history": "None"
+    },
+    {
+        "entity": "Shesten",
+        "description": "Location, Highlands where Balasar is King.",
+        "key_relations": "Ruled by Balasar",
+        "history": "None"
+    },
+    {
+        "entity": "Ranhas",
+        "description": "Location, Shore where Balasar is King.",
+        "key_relations": "Ruled by Balasar",
+        "history": "None"
+    },
+    {
+        "entity": "Javok",
+        "description": "Object/Weapon, Balasar's heavy zweihander (Greatsword), means 'friend'. Motivation: To help Balasar from the beyond (implied by the flaming runes).",
+        "key_relations": "Owned by Balasar, named after Ssarki",
+        "history": "Gifted by Ssarki"
+    },
+    {
+        "entity": "Ssarki",
+        "description": "Person (Deceased), Balasar's dead friend, Name etched on Javok. Motivation: To help Balasar from the beyond.",
+        "key_relations": "Friend of Balasar",
+        "history": "Died to Yuan-Ti ambush in Aass-Nag jungle"
+    },
+    {
+        "entity": "Yuan-Ti",
+        "description": "Creature/Group, Treacherous race, killed Ssarki.",
+        "key_relations": "Enemies of Balasar/Ssarki",
+        "history": "Killed Ssarki"
+    },
+    {
+        "entity": "Aass-Nag",
+        "description": "Location, Jungle where Ssarki died.",
+        "key_relations": "Location of Ssarki's death",
+        "history": "None"
+    },
+    {
+        "entity": "Tymras",
+        "description": "Location, Lowlands, origin of the barbarian orcs.",
+        "key_relations": "Origin of Orcs",
+        "history": "None"
+    },
+    {
+        "entity": "Orcs (General)",
+        "description": "Creature/Group, Barbarian invaders. Motivation: Loot and conquest.",
+        "key_relations": "Enemies of Dragonborn",
+        "history": "Invading Shesten/Ranhas"
+    },
+    {
+        "entity": "Orc Warchief",
+        "description": "Person, Leader of the Orc horde. Motivation: To defeat Balasar and the dragonborn fighters; to continue the subjugation and conquest sought by his people.",
+        "key_relations": "Leader of Orcs, Enemy of Balasar",
+        "history": "Injured Balasar"
+    }
+]
