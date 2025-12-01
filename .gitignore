@@ -16,3 +16,5 @@ terraform.tfstate*
 .vscode/
 __pypackages__/
 nw_env/
+.terraform*
+*.tfvars

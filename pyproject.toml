@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 py-modules = []
 
 [tool.setuptools.packages.find]
-where = ["src"]
+exclude = ["terraform*"]
 
 [project]
 name = "novelwriter"
@@ -14,18 +14,18 @@ version = "0.1.0"
 description = "Write rich and intricate novels with an AI assistant!"
 requires-python = "==3.12.*"
 dependencies = [
-  "ruff == 0.12.*",
+  "ruff == 0.14.*",
   "pre-commit == 4.2.*",
   "pydantic == 2.12.*"
 ]
 
 authors = [
-{"name" = "Ameya Joshi", "email" = "kunae47@gmail.com"}
+  {name = "Ameya Joshi", email = "kunae47@gmail.com"}, # <-- Fixed this line
 ]
 readme = "README.md"
 license = "BSD-3-Clause-Attribution"
 classifiers = [
-    "Development Status :: 1 - Planning"
+  "Development Status :: 1 - Planning"
 ]
 
 [project.optional-dependencies]
@@ -36,7 +36,7 @@ aws = [
 
 [tool.ruff]
 line-length = 100
-src = ["src"]
+src = ["."]
 target-version = "py312"
 exclude = ["terraform/"]
 
@@ -47,5 +47,3 @@ ignore = ["F401", "E501"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-
-
