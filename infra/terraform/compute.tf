@@ -100,12 +100,12 @@ resource "aws_ecs_capacity_provider" "novelwriter" {
 
   auto_scaling_group_provider {
     auto_scaling_group_arn         = aws_autoscaling_group.ecs.arn
-    managed_termination_protection = "ENABLED"
+    managed_termination_protection = "DISABLED"
 
     managed_scaling {
       status                    = "ENABLED"
       target_capacity           = 100
-      minimum_scaling_step_size = 0
+      minimum_scaling_step_size = 1
       maximum_scaling_step_size = 2
     }
   }
