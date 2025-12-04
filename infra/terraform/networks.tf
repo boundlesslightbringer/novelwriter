@@ -310,6 +310,17 @@ resource "aws_security_group_rule" "frontend_from_alb" {
   description              = "Allow traffic from ALB only - prevents direct access bypass"
 }
 
+# Allow SSH traffic from the internet to frontend
+resource "aws_security_group_rule" "frontend_ssh_ingress" {
+  type              = "ingress"
+  from_port         = 22
+  to_port           = 22
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.frontend.id
+  description       = "Allow SSH traffic from the internet"
+}
+
 # ============================================================================
 # Backend (FastAPI) Security Group
 # ============================================================================
@@ -405,6 +416,20 @@ resource "aws_lb_target_group" "backend" {
     unhealthy_threshold = 3
     matcher             = "200"
   }
+}
+
+# Attach React frontend instance to the frontend target group
+resource "aws_lb_target_group_attachment" "react_frontend" {
+  target_group_arn = aws_lb_target_group.frontend.arn
+  target_id        = aws_instance.react-server.id
+  port             = 80
+}
+
+# Attach FastAPI backend instance to the backend target group
+resource "aws_lb_target_group_attachment" "fastapi_backend" {
+  target_group_arn = aws_lb_target_group.backend.arn
+  target_id        = aws_instance.fastapi-server.id
+  port             = 7000
 }
 
 # Single listener on port 80 for path-based routing
