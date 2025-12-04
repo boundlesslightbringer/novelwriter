@@ -16,6 +16,12 @@ variable "chroma-server-ed22519-kp" {
   default     = "chroma-server-ed25519-26112025"
 }
 
+variable "fastapi-server-ed25519-kp" {
+  description = ""
+  type        = string
+  default     = "fastapi-server-ed25519-04122025"
+}
+
 variable "docdb-primary-password" {
   description = ""
   type        = string

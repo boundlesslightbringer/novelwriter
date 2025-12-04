@@ -19,3 +19,4 @@ nw_env/
 .terraform*
 *.tfvars
 chromadb/
+keys/

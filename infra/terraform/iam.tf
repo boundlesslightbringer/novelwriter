@@ -153,7 +153,145 @@ resource "aws_iam_role_policy_attachment" "react_server_dynamodb_access" {
   policy_arn = aws_iam_policy.react_server_dynamodb_access.arn
 }
 
+resource "aws_iam_policy" "react_server_ecr_access" {
+  name        = "react-server-ecr-access-policy"
+  description = "Allows React server to pull images from ECR"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "react_server_ecr_access" {
+  role       = aws_iam_role.react_server_role.name
+  policy_arn = aws_iam_policy.react_server_ecr_access.arn
+}
+
 resource "aws_iam_instance_profile" "react_server_profile" {
   name = "react-server-profile"
   role = aws_iam_role.react_server_role.name
+}
+
+# FastAPI Backend Server IAM Role and Policies
+resource "aws_iam_role" "fastapi_server_role" {
+  name = "fastapi-server-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "fastapi_server_bedrock_access" {
+  role       = aws_iam_role.fastapi_server_role.name
+  policy_arn = aws_iam_policy.bedrock_access.arn
+}
+
+resource "aws_iam_policy" "fastapi_server_s3_access" {
+  name        = "fastapi-server-s3-access-policy"
+  description = "Allows FastAPI server to access S3 bucket"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Effect = "Allow"
+        Resource = [
+          aws_s3_bucket.stories.arn,
+          "${aws_s3_bucket.stories.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "fastapi_server_s3_access" {
+  role       = aws_iam_role.fastapi_server_role.name
+  policy_arn = aws_iam_policy.fastapi_server_s3_access.arn
+}
+
+resource "aws_iam_policy" "fastapi_server_dynamodb_access" {
+  name        = "fastapi-server-dynamodb-access-policy"
+  description = "Allows FastAPI server to access DynamoDB"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ]
+        Effect = "Allow"
+        Resource = [
+          aws_dynamodb_table.prompt_templates.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "fastapi_server_dynamodb_access" {
+  role       = aws_iam_role.fastapi_server_role.name
+  policy_arn = aws_iam_policy.fastapi_server_dynamodb_access.arn
+}
+
+resource "aws_iam_policy" "fastapi_server_ecr_access" {
+  name        = "fastapi-server-ecr-access-policy"
+  description = "Allows FastAPI server to pull images from ECR"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "fastapi_server_ecr_access" {
+  role       = aws_iam_role.fastapi_server_role.name
+  policy_arn = aws_iam_policy.fastapi_server_ecr_access.arn
+}
+
+resource "aws_iam_instance_profile" "fastapi_server_profile" {
+  name = "fastapi-server-profile"
+  role = aws_iam_role.fastapi_server_role.name
 }
