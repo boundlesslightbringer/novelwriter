@@ -59,7 +59,19 @@ variable "chroma_server_auth_provider" {
   type        = string
   default     = ""
   validation {
-    condition = contains(["", "chromadb.auth.token_authn.TokenAuthenticationServerProvider", "chromadb.auth.basic_authn.BasicAuthenticationServerProvider"], var.chroma_server_auth_provider)
+    condition     = contains(["", "chromadb.auth.token_authn.TokenAuthenticationServerProvider", "chromadb.auth.basic_authn.BasicAuthenticationServerProvider"], var.chroma_server_auth_provider)
     error_message = "Must be empty or a valid Chroma auth provider."
   }
+}
+
+variable "frontend_image_tag" {
+  description = "Tag for the frontend image stored in the primary ECR repository."
+  type        = string
+  default     = "frontend-latest"
+}
+
+variable "backend_image_tag" {
+  description = "Tag for the backend image stored in the primary ECR repository."
+  type        = string
+  default     = "backend-latest"
 }

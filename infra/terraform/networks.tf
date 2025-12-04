@@ -347,6 +347,42 @@ resource "aws_security_group_rule" "backend_from_alb" {
   description              = "Allow traffic from ALB only - prevents direct access bypass"
 }
 
+resource "aws_security_group" "ecs_instances" {
+  name        = "novelwriter-ecs-instances-sg"
+  description = "Security group for ECS cluster EC2 instances"
+  vpc_id      = aws_vpc.main.id
+
+  # Ingress from ALB to Frontend port
+  ingress {
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+    description     = "Allow traffic from ALB to frontend containers"
+  }
+
+  # Ingress from ALB to Backend port
+  ingress {
+    from_port       = 7000
+    to_port         = 7000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+    description     = "Allow traffic from ALB to backend containers"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic for ECS hosts"
+  }
+
+  tags = {
+    Name = "novelwriter-ecs-instances-sg"
+  }
+}
+
 resource "aws_lb" "webapp" {
   name               = "webapp"
   load_balancer_type = "application"
@@ -363,7 +399,7 @@ resource "aws_lb_target_group" "frontend" {
   name                          = "frontend-target-group"
   port                          = 80
   protocol                      = "HTTP"
-  target_type                   = "instance"
+  target_type                   = "ip"
   vpc_id                        = aws_vpc.main.id
   load_balancing_algorithm_type = "round_robin"
 
@@ -387,7 +423,7 @@ resource "aws_lb_target_group" "backend" {
   name                          = "backend-target-group"
   port                          = 7000
   protocol                      = "HTTP"
-  target_type                   = "instance"
+  target_type                   = "ip"
   vpc_id                        = aws_vpc.main.id
   load_balancing_algorithm_type = "round_robin"
 
