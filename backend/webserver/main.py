@@ -81,6 +81,7 @@ async def lifespan(app: FastAPI):
         try:
             chroma_client = chromadb.HttpClient(host=state.config.get("chroma").get("host"), port=state.config.get("chroma").get("port"))
             state.chroma_collection = chroma_client.get_or_create_collection(name=state.config.get("chroma").get("default_collection"))
+            logger.info(f"ChromaDB collection '{state.config.get('chroma').get('default_collection')}' created or retrieved successfully.")
         except Exception as e:
             logger.warning(f"Could not connect to ChromaDB: {e}. Vector search features will fail.")
 

@@ -4,8 +4,10 @@ resource "aws_instance" "chroma_server" {
   instance_type               = "t3.small"
   subnet_id                   = aws_subnet.private.id
   key_name                    = data.aws_key_pair.chroma-server-ed25519.key_name
-  vpc_security_group_ids      = [aws_security_group.application.id]
+  vpc_security_group_ids      = [aws_security_group.chroma_server.id]
+  iam_instance_profile        = aws_iam_instance_profile.chroma_server_profile.name
   associate_public_ip_address = false
+  user_data_replace_on_change = true
 
   user_data = <<-EOF
     #!/bin/bash
@@ -19,7 +21,8 @@ resource "aws_instance" "chroma_server" {
 
     mkdir -p /home/ec2-user/config
     curl -o /home/ec2-user/docker-compose.yml https://s3.amazonaws.com/public.trychroma.com/cloudformation/assets/docker-compose.yml
-    sed -i 's/CHROMA_VERSION/${var.chroma_version}/g' /home/ec2-user/docker-compose.yml
+    # Explicitly set version to 1.3.5 to match webserver client 
+    sed -i 's/CHROMA_VERSION/1.3.5/g' /home/ec2-user/docker-compose.yml
     chown ec2-user:ec2-user /home/ec2-user/docker-compose.yml
     
     # Create .env file with configuration
@@ -46,7 +49,7 @@ resource "aws_instance" "chroma_server" {
   }
 
   # Ensure security group is created first
-  depends_on = [aws_security_group_rule.app_to_chroma]
+  depends_on = [aws_security_group_rule.backend_to_chroma]
 }
 
 # dynamo db

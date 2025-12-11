@@ -116,37 +116,6 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private.id
 }
 
-# Security group for application instances
-resource "aws_security_group" "application" {
-  name        = "novelwriter-application-sg"
-  description = "Controls access for the application servers"
-  vpc_id      = aws_vpc.main.id
-
-  # Allows all outbound traffic
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "novelwriter-application-sg"
-  }
-}
-
-# Separate ingress rule to avoid circular dependency
-resource "aws_security_group_rule" "app_to_chroma" {
-  type                     = "ingress"
-  from_port                = 8000
-  to_port                  = 8000
-  protocol                 = "tcp"
-  source_security_group_id = aws_security_group.backend.id
-  security_group_id        = aws_security_group.application.id
-  description              = "Allow Chroma access from backend security group"
-}
-
-
 resource "aws_security_group" "s3_endpoint" {
   name        = "novelwriter-s3-endpoint-sg"
   description = "Controls access to the S3 VPC Endpoint"
@@ -212,11 +181,9 @@ resource "aws_vpc_endpoint" "bedrock" {
     Name = "novelwriter-bedrock-endpoint"
   }
 }
-# ============================================================================
-# Application Load Balancer Security Group
-# ============================================================================
+
 # This security group controls traffic to/from the ALB
-# Ingress: Allows HTTP/HTTPS from the public internet (first line of defense)
+# Ingress: Allows HTTP/HTTPS from the public internet 
 # Egress: Allows traffic to frontend and backend services for request forwarding
 
 resource "aws_security_group" "alb" {
@@ -273,12 +240,9 @@ resource "aws_security_group_rule" "alb_to_backend_egress" {
   description              = "Allow ALB to forward traffic to FastAPI backend"
 }
 
-# ============================================================================
-# Frontend (React) Security Group
-# ============================================================================
 # This security group controls traffic to the React application
-# Ingress: Only accepts traffic from the ALB (prevents direct access bypass)
-# Egress: Allows necessary outbound traffic (S3, external services, etc.)
+# Ingress: Only accepts traffic from the ALB 
+# Egress: Allows necessary outbound traffic 
 
 resource "aws_security_group" "frontend" {
   name        = "novelwriter-frontend-sg"
@@ -310,15 +274,15 @@ resource "aws_security_group_rule" "frontend_from_alb" {
   description              = "Allow traffic from ALB only - prevents direct access bypass"
 }
 
-# Allow SSH traffic from the internet to frontend
+# Allow SSH traffic from my public IP to frontend
 resource "aws_security_group_rule" "frontend_ssh_ingress" {
   type              = "ingress"
   from_port         = 22
   to_port           = 22
   protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
+  cidr_blocks       = [format("%s/32", var.LOCAL_PUBLIC_IP)]
   security_group_id = aws_security_group.frontend.id
-  description       = "Allow SSH traffic from the internet"
+  description       = "Allow SSH traffic from my local IP to frontend"
 }
 
 # ============================================================================
@@ -466,4 +430,35 @@ resource "aws_lb_listener_rule" "backend" {
       ]
     }
   }
+}
+
+
+# Security group for chroma server instances
+resource "aws_security_group" "chroma_server" {
+  name        = "novelwriter-chroma-server-sg"
+  description = "Controls access for the chroma server"
+  vpc_id      = aws_vpc.main.id
+
+  # Allows all outbound traffic
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "novelwriter-chroma-server-sg"
+  }
+}
+
+# Separate ingress rule to avoid circular dependency
+resource "aws_security_group_rule" "backend_to_chroma" {
+  type                     = "ingress"
+  from_port                = 8000
+  to_port                  = 8000
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.backend.id
+  security_group_id        = aws_security_group.chroma_server.id
+  description              = "Allow Chroma access from backend security group"
 }
