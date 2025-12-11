@@ -50,7 +50,7 @@ variable "docdb_master_username" {
 variable "chroma_version" {
   description = "Version of Chroma to deploy"
   type        = string
-  default     = "0.6.3"
+  default     = "1.3.5" # same as pyproject.toml
 }
 
 variable "chroma_server_auth_credentials" {
@@ -65,7 +65,12 @@ variable "chroma_server_auth_provider" {
   type        = string
   default     = ""
   validation {
-    condition = contains(["", "chromadb.auth.token_authn.TokenAuthenticationServerProvider", "chromadb.auth.basic_authn.BasicAuthenticationServerProvider"], var.chroma_server_auth_provider)
+    condition     = contains(["", "chromadb.auth.token_authn.TokenAuthenticationServerProvider", "chromadb.auth.basic_authn.BasicAuthenticationServerProvider"], var.chroma_server_auth_provider)
     error_message = "Must be empty or a valid Chroma auth provider."
   }
+}
+
+variable "LOCAL_PUBLIC_IP" {
+  type        = string
+  description = "My local public IP address"
 }

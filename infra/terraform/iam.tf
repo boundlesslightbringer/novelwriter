@@ -179,6 +179,11 @@ resource "aws_iam_role_policy_attachment" "react_server_ecr_access" {
   policy_arn = aws_iam_policy.react_server_ecr_access.arn
 }
 
+resource "aws_iam_role_policy_attachment" "react_server_ssm_access" {
+  role       = aws_iam_role.react_server_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 resource "aws_iam_instance_profile" "react_server_profile" {
   name = "react-server-profile"
   role = aws_iam_role.react_server_role.name
@@ -291,7 +296,40 @@ resource "aws_iam_role_policy_attachment" "fastapi_server_ecr_access" {
   policy_arn = aws_iam_policy.fastapi_server_ecr_access.arn
 }
 
+resource "aws_iam_role_policy_attachment" "fastapi_server_ssm_access" {
+  role       = aws_iam_role.fastapi_server_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 resource "aws_iam_instance_profile" "fastapi_server_profile" {
   name = "fastapi-server-profile"
   role = aws_iam_role.fastapi_server_role.name
+}
+
+# Chroma Server IAM Role and Policies
+resource "aws_iam_role" "chroma_server_role" {
+  name = "chroma-server-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "chroma_server_ssm_access" {
+  role       = aws_iam_role.chroma_server_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "chroma_server_profile" {
+  name = "chroma-server-profile"
+  role = aws_iam_role.chroma_server_role.name
 }
