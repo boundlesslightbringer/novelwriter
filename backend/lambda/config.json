@@ -2,9 +2,9 @@
     "aws": {
         "region": "ap-south-1",
         "bucket_name": "novelwriter-stories-primary-26-11-2025",
-        "default_story_path_prefix": "abs/",
         "dynamodb_table": "PromptTemplates",
-        "entity_miner_model_id": "deepseek.v3-v1:0"
+        "dynamodb_table_global_prompt_templates_novel_name": "global",
+        "entity_miner_model_id": "moonshot.kimi-k2-thinking"
     },
     "chroma": {
         "host": "10.0.1.75",

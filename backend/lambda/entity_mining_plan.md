@@ -17,18 +17,12 @@ graph TD
     D -->|Event| H[Event Profiler]
     D -->|Object| I[Object Profiler]
     D -->|Organization| M[Organization Profiler]
-    F1 --> V1[Validator Loop]
-    F2 --> V2[Validator Loop]
-    G --> V3[Validator Loop]
-    H --> V4[Validator Loop]
-    I --> V5[Validator Loop]
-    M --> V6[Validator Loop]
-    V1 --> J[JSON Aggregation]
-    V2 --> J
-    V3 --> J
-    V4 --> J
-    V5 --> J
-    V6 --> J
+    F1 --> J[JSON Aggregation]
+    F2 --> J
+    G --> J
+    H --> J
+    I --> J
+    M --> J
     J --> K[Global Relationship Extractor]
     K --> L[Final Entity Knowledge Base]
 ```
@@ -122,25 +116,6 @@ Return a JSON object. Use `null` if the text contains no evidence for a field.
 ```
 *For "Supporting" characters, instructions will guide the LLM to be concise and allow more nulls.*
 
-### 3.1 Person Profile Validator (Feedback Loop)
-**Goal**: Verify accuracy and prevent hallucinations. If failed, the critique is fed back to the Profiler.
-**Template**:
-```text
-You are a Senior Editor. Review the profile for "{entity_name}".
-1. **Hallucination Check**: Did the profiler invent details not in the text?
-2. **State vs Trait**: Did it confuse a temporary emotion for a personality trait?
-
-Profile: {profile_json}
-Text: {text}
-
-Return JSON:
-{
-  "is_accurate": boolean,
-  "critique": "Explain if details were hallucinated or misclassified.",
-}
-```
-*Logic: If `is_accurate` is false, the Profiler is called again with the `critique` appended to the prompt.*
-
 ### 4. Location Profiler (Major Only)
 
 **Goal**: Extract detailed location attributes.
@@ -173,19 +148,6 @@ Return a JSON object with the exact keys below. Use `null` if unknown.
 }
 ```
 
-### 4.1 Location Validator (Feedback Loop)
-**Template**:
-```text
-You are a World-Building Editor. Review the location profile for "{entity_name}".
-1. **Evidence Check**: Are the details supported by the text?
-2. **Hallucination Check**: Are missing details correctly identified as null?
-
-Profile: {profile_json}
-Text: {text}
-
-Return JSON: {"is_accurate": boolean, "critique": "..."}
-```
-
 ### 5. Event Profiler (Major Only)
 
 **Goal**: Extract detailed event attributes.
@@ -215,19 +177,6 @@ Return a JSON object with the exact keys below. Use `null` if unknown.
   "description": "...",
   "prominent_entities_associated": ["List of names..."]
 }
-```
-
-### 5.1 Event Validator (Feedback Loop)
-**Template**:
-```text
-You are a Narrative Editor. Review the event profile for "{entity_name}".
-1. **Evidence Check**: Are the details supported by the text?
-2. **Hallucination Check**: Are missing details correctly identified as null?
-
-Profile: {profile_json}
-Text: {text}
-
-Return JSON: {"is_accurate": boolean, "critique": "..."}
 ```
 
 ### 6. Object Profiler (Major Only)
@@ -263,19 +212,6 @@ Return a JSON object with the exact keys below. Use `null` if unknown.
 }
 ```
 
-### 6.1 Object Validator (Feedback Loop)
-**Template**:
-```text
-You are a Props Master. Review the object profile for "{entity_name}".
-1. **Evidence Check**: Are the details supported by the text?
-2. **Hallucination Check**: Are missing details correctly identified as null?
-
-Profile: {profile_json}
-Text: {text}
-
-Return JSON: {"is_accurate": boolean, "critique": "..."}
-```
-
 ### 7. Organization Profiler (Major Only)
 **Goal**: Extract detailed attributes for groups, factions, or organizations.
 **Reasoning Strategy**:
@@ -307,19 +243,6 @@ Return a JSON object with the exact keys below. Use `null` if unknown.
 }
 ```
 
-### 7.1 Organization Validator (Feedback Loop)
-**Template**:
-```text
-You are a Lore Keeper. Review the organization profile for "{entity_name}".
-1. **Evidence Check**: Are the goals and history supported by the text?
-2. **Hallucination Check**: Did the profiler invent hierarchy details not present?
-
-Profile: {profile_json}
-Text: {text}
-
-Return JSON: {"is_accurate": boolean, "critique": "..."}
-```
-
 ### 8. Global Relationship Extractor
 
 **Goal**: Analyze dynamics between all Major entities to ensure consistency.
@@ -349,4 +272,3 @@ Return a JSON list:
 
 1.  **Define Pydantic Models**: Create strict schema definitions for `Person`, `Location`, `Event` , `Object`, `Organization` to ensure consistent JSON output.
 2.  **Implementation**: Create the logic in `backend/lambda/entity_miner.py` to orchestrate these calls.
-
