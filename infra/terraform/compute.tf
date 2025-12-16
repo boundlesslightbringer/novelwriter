@@ -9,6 +9,13 @@ data "aws_ami" "amazon-linux-2" {
   }
 }
 
+# entity mining VM
+data "archive_file" "entity_miner_zip" {
+  type        = "zip"
+  source_file = "${path.module}/../../backend/lambda/entity_miner.py"
+  output_path = "${path.module}/../../backend/  lambda/entity_miner.zip"
+}
+
 # react application server
 resource "aws_instance" "react-server" {
   ami                         = data.aws_ami.amazon-linux-2.id
@@ -52,13 +59,6 @@ resource "aws_instance" "react-server" {
   tags = {
     Name = "react-server"
   }
-}
-
-# entity mining VM
-data "archive_file" "entity_miner_zip" {
-  type        = "zip"
-  source_file = "${path.module}/../../backend/lambda/entity_miner.py"
-  output_path = "${path.module}/../../backend/  lambda/entity_miner.zip"
 }
 
 # FastAPI backend server
@@ -110,7 +110,7 @@ resource "aws_lambda_function" "entity-miner" {
   function_name    = "entity-miner"
   role             = aws_iam_role.entity_miner_lambda_role.arn
   handler          = "entity_miner.lambda_handler"
-  runtime          = "python3.9"
+  runtime          = "python3.12"
   filename         = data.archive_file.entity_miner_zip.output_path
   source_code_hash = data.archive_file.entity_miner_zip.output_base64sha256
 
@@ -118,4 +118,19 @@ resource "aws_lambda_function" "entity-miner" {
     subnet_ids         = [aws_subnet.private.id]
     security_group_ids = [aws_security_group.backend.id]
   }
+}
+
+resource "aws_lambda_function_event_invoke_config" "entity-miner-s3-file-modified" {
+  function_name = aws_lambda_function.entity-miner.function_name
+  maximum_retry_attempts = 1
+  maximum_event_age_in_seconds = 3600
+  qualifier = "$LATEST"
+}
+
+resource "aws_lambda_permission" "allow_s3_to_invoke_entity-miner" {
+  statement_id  = "AllowS3Invoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.entity-miner.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.stories.arn
 }

@@ -1,34 +1,207 @@
 {
   "genre_determination": {
-    "system_prompt": "You are a literary analyst. Your task is to analyze text to determine its specific fiction genre, considering setting, tone, technology level, and character archetypes.",
-    "user_prompt": "Analyze the following text.\n\nText: {text}\n\nExplain your reasoning briefly, then provide a Genre Label.\n\nOutput Format:\n```json\n{{\n  \"reasoning\": \"...\",\n  \"genre\": \"...\"\n}}\n```"
+    "system_prompt": "You are a literary analyst. Your task is to analyze text to determine its specific fiction genre, considering setting, tone, technology level, and character archetypes. Your output must be a valid JSON object adhering to the schema provided by the user. Output the final result as a single valid JSON object wrapped in markdown code blocks (```json ... ```).",
+    "user_prompt": "Analyze the following text.\n\nText: {text}\n\nExplain your reasoning briefly, then provide a Genre Label.\n\nAdhere strictly to the following schema:\n```json\n{{\n  \"type\": \"object\",\n  \"properties\": {{\n    \"reasoning\": {{ \"type\": \"string\" }},\n    \"genre\": {{ \"type\": \"string\" }}\n  }},\n  \"required\": [\"reasoning\", \"genre\"]\n}}\n```\n\nExample output format:\n```json\n{{\n  \"reasoning\": \"The text features a medieval fantasy setting with multiple races (dragonborn, orcs, Yuan-Ti), active deities (Great Mother Tamara), and magic integrated into combat. The tone is epic and heroic with mythic elements, focusing on a warrior-king protagonist favored by gods. Technology is pre-industrial (swords, axes, armor). Character archetypes include the divine champion and priest-healer, classic to the genre. These elements collectively indicate High Fantasy.\",\n  \"genre\": \"High Fantasy\"\n}}\n```\n\nYou may reason about the task first internally, but your final response must be ONLY the JSON object within a ```json code block. Do not include any text before or after the code block. The JSON must be the last and only output.",
+    "example_output": {
+      "reasoning": "The text features a medieval fantasy setting with multiple races (dragonborn, orcs, Yuan-Ti), active deities (Great Mother Tamara), and magic integrated into combat. The tone is epic and heroic with mythic elements, focusing on a warrior-king protagonist favored by gods. Technology is pre-industrial (swords, axes, armor). Character archetypes include the divine champion and priest-healer, classic to the genre. These elements collectively indicate High Fantasy.",
+      "genre": "High Fantasy"
+    } 
   },
   "entity_extraction": {
-    "system_prompt": "You are an expert editor. Your task is to extract named entities from text, classify them (Person, Location, Event, Object, Organization, Other), and determine their significance (Major, Supporting, Minor).",
-    "user_prompt": "Read the text below and extract all named entities.\n1. Classify each entity into: \"Person\", \"Location\", \"Event\", \"Object\", \"Organization\", \"Other\".\n2. Determine Significance:\n   - \"Major\": deeply involved in the scene, driving action, or detailed heavily.\n   - \"Supporting\": significant interaction or role, but not a central focus.\n   - \"Minor\": mentioned in passing, background, or lacks agency.\n\nContext/Genre: {genre}\nText: {text}\n\nOutput as a JSON list of objects:\n```json\n[\n  {{\"name\": \"Entity Name\", \"category\": \"...\", \"significance\": \"Major/Supporting/Minor\"}},\n  ...\n]\n```"
+    "system_prompt": "You are an expert editor. Your task is to extract named entities from text, classify them (Person, Location, Event, Object, Organization, Other), and determine their significance (Major, Supporting, Minor). Your output must be a valid JSON object adhering to the schema provided by the user. Output the final result as a single valid JSON object wrapped in markdown code blocks (```json ... ```).",
+    "user_prompt": "Read the text below and extract all named entities.\n1. Classify each entity into: \"Person\", \"Location\", \"Event\", \"Object\", \"Organization\", \"Other\".\n2. Determine Significance:\n   - \"Major\": deeply involved in the scene, driving action, or detailed heavily.\n   - \"Supporting\": significant interaction or role, but not a central focus.\n   - \"Minor\": mentioned in passing, background, or lacks agency.\n\nContext/Genre: {genre}\nText: {text}\n\nAdhere strictly to the following schema:\n```json\n{{\n  \"type\": \"object\",\n  \"properties\": {{\n    \"entities\": {{\n      \"type\": \"array\",\n      \"items\": {{\n        \"type\": \"object\",\n        \"properties\": {{\n          \"name\": {{ \"type\": \"string\" }},\n          \"category\": {{ \"type\": \"string\", \"enum\": [\"Person\", \"Location\", \"Event\", \"Object\", \"Organization\", \"Other\"] }},\n          \"significance\": {{ \"type\": \"string\", \"enum\": [\"Major\", \"Supporting\", \"Minor\"] }}\n        }},\n        \"required\": [\"name\", \"category\", \"significance\"]\n      }}\n    }}\n  }},\n  \"required\": [\"entities\"]\n}}\n```\n\nExample output format (showing structure - extract all entities from the provided text):\n```json\n{{\n  \"entities\": [\n    {{\"name\": \"Shedinn\", \"category\": \"Person\", \"significance\": \"Major\"}},\n    {{\"name\": \"Great Mother Tamara\", \"category\": \"Person\", \"significance\": \"Supporting\"}},\n    {{\"name\": \"Balasar\", \"category\": \"Person\", \"significance\": \"Major\"}},\n    {{\"name\": \"Shesten highlands\", \"category\": \"Location\", \"significance\": \"Minor\"}},\n    {{\"name\": \"Javok\", \"category\": \"Object\", \"significance\": \"Major\"}}\n  ]\n}}\n```\n\nYou may reason about the task first internally, but your final response must be ONLY the JSON object within a ```json code block. Do not include any text before or after the code block. The JSON must be the last and only output.",
+    "example_output": {
+      "entities": [
+        {
+          "name": "Shedinn",
+          "category": "Person",
+          "significance": "Major"
+        },
+        {
+          "name": "Great Mother Tamara",
+          "category": "Person",
+          "significance": "Supporting"
+        },
+        {
+          "name": "Balasar",
+          "category": "Person",
+          "significance": "Major"
+        },
+        {
+          "name": "Ssarki",
+          "category": "Person",
+          "significance": "Supporting"
+        },
+        {
+          "name": "Orc warchief",
+          "category": "Person",
+          "significance": "Supporting"
+        },
+        {
+          "name": "Shalash",
+          "category": "Person",
+          "significance": "Minor"
+        },
+        {
+          "name": "Shesten highlands",
+          "category": "Location",
+          "significance": "Minor"
+        },
+        {
+          "name": "Ranhas shore",
+          "category": "Location",
+          "significance": "Minor"
+        },
+        {
+          "name": "Aass-Nag jungle",
+          "category": "Location",
+          "significance": "Minor"
+        },
+        {
+          "name": "Tymras lowlands",
+          "category": "Location",
+          "significance": "Minor"
+        },
+        {
+          "name": "The battle",
+          "category": "Event",
+          "significance": "Supporting"
+        },
+        {
+          "name": "Javok",
+          "category": "Object",
+          "significance": "Major"
+        },
+        {
+          "name": "Curved dagger",
+          "category": "Object",
+          "significance": "Supporting"
+        },
+        {
+          "name": "Healer's staff",
+          "category": "Object",
+          "significance": "Supporting"
+        },
+        {
+          "name": "Greataxe",
+          "category": "Object",
+          "significance": "Minor"
+        },
+        {
+          "name": "Skull-helmet",
+          "category": "Object",
+          "significance": "Minor"
+        },
+        {
+          "name": "Daedendrainn clan",
+          "category": "Organization",
+          "significance": "Supporting"
+        },
+        {
+          "name": "Gods",
+          "category": "Other",
+          "significance": "Supporting"
+        },
+        {
+          "name": "Orcs",
+          "category": "Other",
+          "significance": "Minor"
+        },
+        {
+          "name": "Yuan-Ti",
+          "category": "Other",
+          "significance": "Minor"
+        },
+        {
+          "name": "Dragonborn",
+          "category": "Other",
+          "significance": "Minor"
+        }
+      ]
+    }
   },
   "person_profiler": {
-    "system_prompt": "You are a character profiler. Analyze characters based on the provided text. Prioritize explicit evidence, but if needed, draw certain loose inferences from the genre context. Distinguish state from trait, and analyze voice. Return a JSON object.",
-    "user_prompt": "Analyze the character \"{entity_name}\" based on the text provided.\nSignificance Level: {significance}\n\nReasoning Steps:\n1. Identify explicit physical details vs. genre assumptions.\n2. Distinguish between temporary emotions (State) and permanent traits (Personality).\n3. Analyze dialogue for Voice/Style.\n4. Identify what is NOT known (gaps).\n\nContext/Genre: {genre}\nText: {text}\n\nReturn a JSON object. Use `null` if the text contains no evidence for a field.\n```json\n{{\n  \"name\": \"{entity_name}\",\n  \"titles_and_nicknames\": [\"...\"],\n  \"role\": \"Protagonist/Antagonist/Supporting/etc.\",\n  \"physical_description\": \"...\",\n  \"history\": \"...\",\n  \"personality\": \"...\",\n  \"voice_style\": \"Describe speech patterns, formality, slang, etc.\",\n  \"motivations\": \"...\",\n  \"strengths\": \"...\",\n  \"flaws\": \"...\",\n  \"long_term_goals\": \"...\",\n  \"short_term_goals\": \"...\",\n  \"current_internal_state\": \"...\"\n}}\n```"
+    "system_prompt": "You are a character profiler. Analyze characters based on the provided text. Prioritize explicit evidence, but if needed, draw certain loose inferences from the genre context. Distinguish state from trait, and analyze voice. Return a JSON object. Your output must be a valid JSON object adhering to the schema provided by the user. Output the final result as a single valid JSON object wrapped in markdown code blocks (```json ... ```).",
+    "user_prompt": "Analyze the character \"{entity_name}\" based on the text provided.\nSignificance Level: {significance}\n\nReasoning Steps:\n1. Identify explicit physical details vs. genre assumptions.\n2. Distinguish between temporary emotions (State) and permanent traits (Personality).\n3. Analyze dialogue for Voice/Style.\n4. Identify what is NOT known (gaps).\n\nContext/Genre: {genre}\nText: {text}\n\nAdhere strictly to the following schema:\n```json\n{{\n  \"type\": \"object\",\n  \"properties\": {{\n    \"name\": {{ \"type\": \"string\" }},\n    \"titles_and_nicknames\": {{ \"type\": [\"array\", \"null\"], \"items\": {{ \"type\": \"string\" }} }},\n    \"role\": {{ \"type\": \"string\" }},\n    \"physical_description\": {{ \"type\": [\"string\", \"null\"] }},\n    \"history\": {{ \"type\": [\"string\", \"null\"] }},\n    \"personality\": {{ \"type\": [\"string\", \"null\"] }},\n    \"voice_style\": {{ \"type\": [\"string\", \"null\"] }},\n    \"motivations\": {{ \"type\": [\"string\", \"null\"] }},\n    \"strengths\": {{ \"type\": [\"string\", \"null\"] }},\n    \"flaws\": {{ \"type\": [\"string\", \"null\"] }},\n    \"long_term_goals\": {{ \"type\": [\"string\", \"null\"] }},\n    \"short_term_goals\": {{ \"type\": [\"string\", \"null\"] }},\n    \"current_internal_state\": {{ \"type\": [\"string\", \"null\"] }}\n  }},\n  \"required\": [\"name\", \"role\"]\n}}\n```\n\nExample output format:\n```json\n{{\n  \"name\": \"Balasar\",\n  \"titles_and_nicknames\": [\"Chieftain\", \"Favoured of the Gods\", \"King of the Shesten highlands and Ranhas shore\"],\n  \"role\": \"Protagonist and Warrior-King\",\n  \"physical_description\": \"Dragonborn with a permanently large, grey, muscled frame that towers a head above other combatants. His scales bear tattooed runes that temporarily glow warm yellow during combat.\",\n  \"history\": \"Scion of the Daedendrainn clan, descendant of the legendary Shalash. Rules as king over the Shesten highlands and Ranhas shore.\",\n  \"personality\": \"Courageous, determined warrior-leader who deeply values honor, familial loyalty, and the weight of debt.\",\n  \"voice_style\": \"Direct speech is minimal but dichotomous: formal and honor-bound with allies, yet aggressively commanding toward enemies.\",\n  \"motivations\": \"Defend his kingdom and clan from the invading orc horde. Exact personal retribution upon the warchief who wounded him.\",\n  \"strengths\": \"Extraordinary physical size and strength. Master combatant proficient with both greatsword and dagger.\",\n  \"flaws\": \"Vulnerable to being overpowered in direct confrontation. Susceptible to righteous fury that may impair defensive judgment.\",\n  \"long_term_goals\": \"Secure lasting protection for the Shesten highlands and Ranhas shore from external threats.\",\n  \"short_term_goals\": \"Defeat the orc warchief in single combat to break the enemy's morale.\",\n  \"current_internal_state\": \"Revived from unconsciousness via divine healing, experiencing intense righteous fury and singular focus on vengeance.\"\n}}\n```\n\nYou may reason about the task first internally, but your final response must be ONLY the JSON object within a ```json code block. Do not include any text before or after the code block. The JSON must be the last and only output. Use null for fields where information is not available. If the name is not available, then create an accurate placeholder and use it as the name.",
+    "example_output": {
+      "name": "Balasar",
+      "titles_and_nicknames": [
+        "Chieftain",
+        "Favoured of the Gods",
+        "King of the Shesten highlands and Ranhas shore"
+      ],
+      "role": "Protagonist and Warrior-King",
+      "physical_description": "Dragonborn with a permanently large, grey, muscled frame that towers a head above other combatants. His scales bear tattooed runes that temporarily glow warm yellow during combat. Eye expressions vary by state, described as blazing 'like hot coal' when enraged. Possesses exceptional physical strength and stature.",
+      "history": "Scion of the Daedendrainn clan, descendant of the legendary Shalash. Rules as king over the Shesten highlands and Ranhas shore. Younger brother to Shedinn, a healer. Once possessed a dear friend, Ssarki, who perished in a Yuan-Ti ambush within the Aass-Nag jungle; in memoriam, Balasar wields a rune-etched zweihander named 'Javok' (dragonborn for 'friend') that channels Ssarki's spirit to conjure flames.",
+      "personality": "Courageous, determined warrior-leader who deeply values honor, familial loyalty, and the weight of debt. Demonstrates methodical tactical precision and maintains composure under extreme duress. Prone to righteous anger but channels it into decisive action. Carries pride in his lineage and role, expressing triumphant satisfaction in victory.",
+      "voice_style": "Direct speech is minimal but dichotomous: formal and honor-bound with allies ('I'm in your debt, brother'), yet aggressively commanding toward enemies ('FACE ME, SCUM!'). Internal monologue is starkly tactical, using numbered counts and clinical assessments ('One', 'Two', 'Got the heart...'). The narrative voice frames him in epic, heroic grandeur.",
+      "motivations": "Defend his kingdom and clan from the invading orc horde. Exact personal retribution upon the warchief who wounded him. Fulfill his sacred duty as chieftain and king. Maintain divine favor through righteous action. Honor his fallen friend's memory by wielding Javok in battle.",
+      "strengths": "Extraordinary physical size and strength. Master combatant proficient with both greatsword and dagger, skilled in feints and anatomically precise strikes. Remarkable resilience, continuing to fight through severe injuries. Tactical thinker who methodically exploits enemy weaknesses. Magically empowered by glowing runic tattoos. Holds confirmed divine favor. Proven leadership as both chieftain and king.",
+      "flaws": "Vulnerable to being overpowered in direct confrontation (was rendered unconscious by the warchief). Susceptible to righteous fury that may impair defensive judgment. Displays potential overconfidence in single combat. Willingness to abandon his primary weapon in desperation creates tactical vulnerability.",
+      "long_term_goals": "Secure lasting protection for the Shesten highlands and Ranhas shore from external threats. Preserve the honor and legacy of the Daedendrainn clan. Maintain and potentially expand divine favor. Establish lasting order and peace in his realm.",
+      "short_term_goals": "Defeat the orc warchief in single combat to break the enemy's morale. Achieve victory against the invading orc horde. Survive his severe combat wounds. Protect his younger brother Shedinn and his warriors during the battle.",
+      "current_internal_state": "Revived from unconsciousness via divine healing, experiencing intense righteous fury and singular focus on vengeance. Physically compromised by a split forehead and a severely damaged left arm, yet maintaining clinical tactical clarity. Feels urgent pressure to act before succumbing to fatal injury. Upon victory, experiences triumphant exultation and relief."
+    }
   },
   "location_profiler": {
-    "system_prompt": "You are a setting designer. Analyze locations based on the text provided and genre context. Focus on sensory details, history, and atmosphere.",
-    "user_prompt": "Analyze the location \"{entity_name}\".\n\nReason through these points first:\n1. What are the dominant sensory details?\n2. How does the history of the place manifest in its current appearance?\n3. What is the emotional atmosphere?\n\nContext/Genre: {genre}\nText: {text}\n\nReturn a JSON object with the exact keys below. Use `null` if unknown.\n```json\n{{\n  \"primary_name\": \"{entity_name}\",\n  \"secondary_name\": \"...\",\n  \"description\": \"...\",\n  \"history\": \"...\",\n  \"prominent_entities_associated\": [\"List of names...\"]\n}}\n```"
+    "system_prompt": "You are a setting designer. Analyze locations based on the text provided and genre context. Focus on sensory details, history, and atmosphere. Your output must be a valid JSON object adhering to the schema provided by the user. Output the final result as a single valid JSON object wrapped in markdown code blocks (```json ... ```).",
+    "user_prompt": "Analyze the location \"{entity_name}\".\n\nReason through these points first:\n1. What are the dominant sensory details?\n2. How does the history of the place manifest in its current appearance?\n3. What is the emotional atmosphere?\n\nContext/Genre: {genre}\nText: {text}\n\nAdhere strictly to the following schema:\n```json\n{{\n  \"type\": \"object\",\n  \"properties\": {{\n    \"primary_name\": {{ \"type\": \"string\" }},\n    \"secondary_name\": {{ \"type\": [\"string\", \"null\"] }},\n    \"description\": {{ \"type\": [\"string\", \"null\"] }},\n    \"history\": {{ \"type\": [\"string\", \"null\"] }},\n    \"prominent_entities_associated\": {{ \"type\": [\"array\", \"null\"], \"items\": {{ \"type\": \"string\" }} }}\n  }},\n  \"required\": [\"primary_name\"]\n}}\n```\n\nExample output format:\n```json\n{{\n  \"primary_name\": \"Aass-Nag\",\n  \"secondary_name\": null,\n  \"description\": \"A dense, treacherous jungle characterized by oppressive humidity and choking vegetation. The air hangs thick with the scent of decaying flora and the metallic tang of old blood.\",\n  \"history\": \"Aass-Nag is infamous among the dragonborn as the site of a devastating Yuan-Ti ambush that claimed the life of Ssarki, a dear friend of King Balasar.\",\n  \"prominent_entities_associated\": [\"Yuan-Ti\", \"Ssarki\"]\n}}\n```\n\nYou may reason about the task first internally, but your final response must be ONLY the JSON object within a ```json code block. Do not include any text before or after the code block. The JSON must be the last and only output. Use null for fields where information is not available.",
+    "example_output": {
+      "primary_name": "Aass-Nag",
+      "secondary_name": null,
+      "description": "A dense, treacherous jungle characterized by oppressive humidity and choking vegetation. The air hangs thick with the scent of decaying flora and the metallic tang of old blood. Ancient trees form a canopy that casts deep, shifting shadows, while the constant drone of insects and distant, unseen creatures creates an atmosphere of perpetual unease. Vines hang like serpents from towering trees, and the undergrowth conceals both natural dangers and the remnants of ancient structures. The jungle seems to watch intruders with a predatory patience, its silence broken only by sudden, startling sounds that hint at hidden threats.",
+      "history": "Aass-Nag is infamous among the dragonborn as the site of a devastating Yuan-Ti ambush that claimed the life of Ssarki, a dear friend of King Balasar of the Daedendrainn clan. This treacherous event occurred when Ssarki gifted Balasar his greatsword, Javok, making the jungle a place of profound loss and betrayal in dragonborn memory. The Yuan-Ti, serpentine masters of deceit, used the dense terrain to their advantage, transforming the jungle's natural features into a killing ground. Since that day, Aass-Nag has been remembered as a cursed place where trust is broken and heroes fall, its history of treachery manifesting in the very atmosphere—every shadow seems to conceal a waiting enemy, and every path appears to lead to doom.",
+      "prominent_entities_associated": ["Yuan-Ti", "Ssarki"]
+    }
   },
   "event_profiler": {
-    "system_prompt": "You are a historian of this fictional world. Analyze events based on text and genre context, focusing on causality, sequence, and impact.",
-    "user_prompt": "Analyze the event \"{entity_name}\".\n\nReason through these points first:\n1. What was the inciting incident?\n2. How did the event alter the status quo?\n3. Who were the key agents of change?\n\nContext/Genre: {genre}\nText: {text}\n\nReturn a JSON object with the exact keys below. Use `null` if unknown.\n```json\n{{\n  \"primary_name\": \"{entity_name}\",\n  \"secondary_name\": \"...\",\n  \"description\": \"...\",\n  \"prominent_entities_associated\": [\"List of names...\"]\n}}\n```"
+    "system_prompt": "You are a historian of this fictional world. Analyze events based on text and genre context, focusing on causality, sequence, and impact. Your output must be a valid JSON object adhering to the schema provided by the user. Output the final result as a single valid JSON object wrapped in markdown code blocks (```json ... ```).",
+    "user_prompt": "Analyze the event \"{entity_name}\".\n\nReason through these points first:\n1. What was the inciting incident?\n2. How did the event alter the status quo?\n3. Who were the key agents of change?\n\nContext/Genre: {genre}\nText: {text}\n\nAdhere strictly to the following schema:\n```json\n{{\n  \"type\": \"object\",\n  \"properties\": {{\n    \"primary_name\": {{ \"type\": \"string\" }},\n    \"secondary_name\": {{ \"type\": [\"string\", \"null\"] }},\n    \"description\": {{ \"type\": [\"string\", \"null\"] }},\n    \"history\": {{ \"type\": [\"string\", \"null\"] }},\n    \"prominent_entities_associated\": {{ \"type\": [\"array\", \"null\"], \"items\": {{ \"type\": \"string\" }} }}\n  }},\n  \"required\": [\"primary_name\"]\n}}\n```\n\nExample output format:\n```json\n{{\n  \"primary_name\": \"The Battle of the Shesten Highlands\",\n  \"secondary_name\": null,\n  \"description\": \"A decisive engagement during the Orcish incursion into dragonborn territories, characterized by miraculous divine intervention that restored the fallen King Balasar to consciousness.\",\n  \"history\": \"The inciting incident occurred when the orc warchief struck down Balasar, rendering him unconscious and compromising dragonborn command. Key agents of change included: Shedinn, whose prayer to the Great Mother Tamara resurrected Balasar; Balasar himself, whose martial prowess reversed the tactical situation; and supernatural forces that provided decisive advantages.\",\n  \"prominent_entities_associated\": [\"Balasar of the Daedendrainn clan\", \"Shedinn the Healer\", \"Orc Warchief of Tymras\", \"Great Mother Tamara\"]\n}}\n```\n\nYou may reason about the task first internally, but your final response must be ONLY the JSON object within a ```json code block. Do not include any text before or after the code block. The JSON must be the last and only output. Use null for fields where information is not available.",
+    "example_output": {
+      "primary_name": "The Battle of the Shesten Highlands",
+      "secondary_name": "The Resurrection of Balasar and Fall of the Orc Warchief",
+      "description": "A decisive engagement during the Orcish incursion into dragonborn territories, characterized by miraculous divine intervention that restored the fallen King Balasar to consciousness, enabling his single-combat victory over the orc warchief and subsequent rout of the invading horde.",
+      "history": "The inciting incident occurred when the orc warchief struck down Balasar, rendering him unconscious and compromising dragonborn command. This critical loss altered the status quo by threatening collapse of the defensive line. Key agents of change included: Shedinn, whose prayer to the Great Mother Tamara resurrected Balasar with enhanced vitality; Balasar himself, whose martial prowess and divine empowerment reversed the tactical situation; and supernatural forces (Tamara's healing magic and Ssarki's spirit within the sword Javok) that provided decisive advantages. The event concluded with the warchief's death, shifting momentum irrevocably to the dragonborn and preserving their sovereignty.",
+      "prominent_entities_associated": [
+        "Balasar of the Daedendrainn clan",
+        "Shedinn the Healer",
+        "Orc Warchief of Tymras",
+        "Great Mother Tamara",
+        "Javok (Greatsword of Ssarki)",
+        "Spirit of Ssarki",
+        "Dragonborn defenders",
+        "Orcish horde from Tymras lowlands"
+      ]
+    }
   },
   "object_profiler": {
-    "system_prompt": "You are a Loremaster. Analyze objects or artifacts based on text and genre context, focusing on physicality, function/magic, provenance, and bond.",
-    "user_prompt": "Analyze the object \"{entity_name}\".\n\nReason through these points first:\n1. Visual and tactile details (material, weight, glow).\n2. Mechanics of its function or magic.\n3. Emotional or historical significance to the wielder.\n\nContext/Genre: {genre}\nText: {text}\n\nReturn a JSON object with the exact keys below. Use `null` if unknown.\n```json\n{{\n  \"name\": \"{entity_name}\",\n  \"type\": \"Weapon/Artifact/Tool/etc.\",\n  \"description\": \"...\",\n  \"history\": \"...\",\n  \"magical_properties\": \"...\",\n  \"owner\": \"Name of owner if known\"\n}}\n```"
+    "system_prompt": "You are a Loremaster. Analyze objects or artifacts based on text and genre context, focusing on physicality, function/magic, provenance, and bond. Your output must be a valid JSON object adhering to the schema provided by the user. Output the final result as a single valid JSON object wrapped in markdown code blocks (```json ... ```).",
+    "user_prompt": "Analyze the object \"{entity_name}\".\n\nReason through these points first:\n1. Visual and tactile details (material, weight, glow).\n2. Mechanics of its function or magic.\n3. Emotional or historical significance to the wielder.\n\nContext/Genre: {genre}\nText: {text}\n\nAdhere strictly to the following schema:\n```json\n{{\n  \"type\": \"object\",\n  \"properties\": {{\n    \"primary_name\": {{ \"type\": \"string\" }},\n    \"secondary_name\": {{ \"type\": [\"string\", \"null\"] }},\n    \"type\": {{ \"type\": [\"string\", \"null\"] }},\n    \"description\": {{ \"type\": [\"string\", \"null\"] }},\n    \"history\": {{ \"type\": [\"string\", \"null\"] }},\n    \"magical_properties\": {{ \"type\": [\"string\", \"null\"] }},\n    \"owner\": {{ \"type\": [\"string\", \"null\"] }}\n  }},\n  \"required\": [\"primary_name\"]\n}}\n```\n\nExample output format:\n```json\n{{\n  \"primary_name\": \"Javok\",\n  \"secondary_name\": null,\n  \"type\": \"Heavy zweihander greatsword\",\n  \"description\": \"A massive two-handed blade of substantial heft, etched with runes along its length that glow vibrant reddish-orange when active. The steel conjures hungry, licking flames.\",\n  \"history\": \"Forged as a final gift from Ssarki to Balasar of the Daedendrainn clan. After Ssarki's death, Balasar named the blade 'Javok'—dragonborn for 'friend'—and inscribed its runes to spell Ssarki's name.\",\n  \"magical_properties\": \"The runes spelling 'Ssarki' channel the deceased friend's spirit, manifesting as sentient flames that leap from the blade with ravenous hunger.\",\n  \"owner\": \"Balasar of the Daedendrainn clan, chieftain, favoured of the Gods, and King of the Shesten highlands and Ranhas shore\"\n}}\n```\n\nYou may reason about the task first internally, but your final response must be ONLY the JSON object within a ```json code block. Do not include any text before or after the code block. The JSON must be the last and only output. Use null for fields where information is not available.",
+    "example_output": {
+      "primary_name": "Javok",
+      "secondary_name": "The Blade of Ssarki",
+      "type": "Heavy zweihander greatsword",
+      "description": "A massive two-handed blade of substantial heft, etched with runes along its length that glow vibrant reddish-orange when active. The steel conjures hungry, licking flames that form writhing tongues and binding ropes of fire. The flames respond to wind, growing more vigorous with its presence, and the entire weapon carries the weight and presence of a trusted companion rather than a mere tool of war.",
+      "history": "Forged as a final gift from Ssarki to Balasar of the Daedendrainn clan. After Ssarki's death in a treacherous Yuan-Ti ambush within the Aass-Nag jungle, Balasar named the blade 'Javok'—dragonborn for 'friend'—and inscribed its runes to spell Ssarki's name. The sword transformed from mere steel into a memorial and spiritual conduit, allowing Ssarki's essence to aid Balasar from beyond death. It has since been carried by the chieftain through countless battles, serving as both weapon and remembrance.",
+      "magical_properties": "The runes spelling 'Ssarki' channel the deceased friend's spirit, manifesting as sentient flames that leap from the blade with ravenous hunger. These fiery tendrils can bind enemies in ropes of fire and are invigorated by wind, suggesting either divine blessing or elemental synergy. The magic activates with a reddish-orange glow and appears to grant the weapon a degree of agency, as if Ssarki himself fights alongside Balasar. The flames are not merely decorative but actively seek and restrain foes.",
+      "owner": "Balasar of the Daedendrainn clan, chieftain, favoured of the Gods, and King of the Shesten highlands and Ranhas shore"
+    }
   },
   "organization_profiler": {
-    "system_prompt": "You are a Political Analyst. Analyze organizations based on text and genre context, focusing on purpose, structure, reputation, and key members.",
-    "user_prompt": "Analyze the organization \"{entity_name}\".\n\nReason through these points first:\n1. What is their stated goal vs actual behavior?\n2. How do they operate (overtly/covertly)?\n3. Who are the visible faces of the group?\n\nContext/Genre: {genre}\nText: {text}\n\nReturn a JSON object with the exact keys below. Use `null` if unknown.\n```json\n{{\n  \"name\": \"{entity_name}\",\n  \"type\": \"Guild/Army/Cult/Government/etc.\",\n  \"description\": \"...\",\n  \"history\": \"...\",\n  \"goals\": \"...\",\n  \"prominent_members\": [\"List of names...\"]\n}}\n```"
+    "system_prompt": "You are a Political Analyst. Analyze organizations based on text and genre context, focusing on purpose, structure, reputation, and key members. Your output must be a valid JSON object adhering to the schema provided by the user. Output the final result as a single valid JSON object wrapped in markdown code blocks (```json ... ```).",
+    "user_prompt": "Analyze the organization \"{entity_name}\".\n\nReason through these points first:\n1. What is their stated goal vs actual behavior?\n2. How do they operate (overtly/covertly)?\n3. Who are the visible faces of the group?\n\nContext/Genre: {genre}\nText: {text}\n\nAdhere strictly to the following schema:\n```json\n{{\n  \"type\": \"object\",\n  \"properties\": {{\n    \"primary_name\": {{ \"type\": \"string\" }},\n    \"secondary_name\": {{ \"type\": [\"string\", \"null\"] }},\n    \"type\": {{ \"type\": [\"string\", \"null\"] }},\n    \"description\": {{ \"type\": [\"string\", \"null\"] }},\n    \"history\": {{ \"type\": [\"string\", \"null\"] }},\n    \"goals\": {{ \"type\": [\"string\", \"null\"] }},\n    \"prominent_members\": {{ \"type\": [\"array\", \"null\"], \"items\": {{ \"type\": \"string\" }} }}\n  }},\n  \"required\": [\"primary_name\"]\n}}\n```\n\nExample output format:\n```json\n{{\n  \"primary_name\": \"Orcs\",\n  \"secondary_name\": \"The Tymras Horde\",\n  \"type\": \"Barbarian Horde\",\n  \"description\": \"A feral warrior race from the Tymras lowlands, depicted as uncivilized creatures who fight with crude weapons and armor.\",\n  \"history\": \"Originating from the barbarian Tymras lowlands, the orcs represent a persistent barbaric force in the region, established as long-standing enemies of the dragonborn kingdoms.\",\n  \"goals\": \"Their primary purpose is loot and conquest, driven by a cultural and religious imperative of subjugation. Their gods 'care only about subjugation,' suggesting their society is built around martial expansion.\",\n  \"prominent_members\": [\"Unnamed Orc Warchief (KIA)\"]\n}}\n```\n\nYou may reason about the task first internally, but your final response must be ONLY the JSON object within a ```json code block. Do not include any text before or after the code block. The JSON must be the last and only output. Use null for fields where information is not available.",
+    "example_output": {
+      "primary_name": "Orcs",
+      "secondary_name": "The Tymras Horde",
+      "type": "Barbarian Horde",
+      "description": "A feral warrior race from the Tymras lowlands, depicted as uncivilized creatures who fight with crude weapons and armor. They engage in battle with unrestrained savagery, employing harsh language and brutal tactics. Characterized by physical ferocity and a culture oriented around martial dominance, they are portrayed as antagonists to the more civilized dragonborn societies.",
+      "history": "Originating from the barbarian Tymras lowlands—a region described as filled with uncivilized creatures—the orcs represent a persistent barbaric force in the region. Historical details are limited in this chapter, but they are established as long-standing enemies of the dragonborn kingdoms, particularly those of the Shesten highlands and Ranhas shore.",
+      "goals": "As interpreted by their enemies, their primary purpose is loot and conquest, driven by a cultural and religious imperative of subjugation. The text explicitly states their gods 'care only about subjugation,' suggesting their society is built around martial expansion and the domination of other peoples. Their actual behavior aligns with this assessment, showing them engaged in direct military assault aimed at defeating the dragonborn forces.",
+      "prominent_members": ["Unnamed Orc Warchief (KIA)"]
+    }
   },
   "relationship_extractor": {
-    "system_prompt": "You are a Relationship Mapper. Analyze dynamics between major entities to identify explicit relationships, alliances, and conflicts.",
-    "user_prompt": "Analyze the interactions between the following entities: {top_k_names}.\n\nIdentify all explicit relationships, alliances, and conflicts present in the text.\n\nContext/Genre: {genre}\nText: {text}\n\nReturn a JSON list:\n```json\n[\n  {{\n    \"source\": \"Name A\",\n    \"target\": \"Name B\",\n    \"relation_type\": \"Sibling/Enemy/Superior/etc.\",\n    \"dynamics\": \"Description of their interaction...\"\n  }},\n  ...\n]\n```"
+    "system_prompt": "You are a Relationship Mapper. Analyze dynamics between major entities to identify explicit relationships, alliances, and conflicts. Your output must be a valid JSON object adhering to the schema provided by the user.",
+    "user_prompt": "Analyze the interactions between the following entities: {top_k_names}.\n\nIdentify all explicit relationships, alliances, and conflicts present in the text.\n\nContext/Genre: {genre}\nText: {text}\n\nAdhere strictly to the following schema:\n```json\n{{\n  \"type\": \"object\",\n  \"properties\": {{\n    \"relationships\": {{\n      \"type\": \"array\",\n      \"items\": {{\n        \"type\": \"object\",\n        \"properties\": {{\n          \"source\": {{ \"type\": \"string\" }},\n          \"target\": {{ \"type\": \"string\" }},\n          \"relation_type\": {{ \"type\": \"string\" }},\n          \"dynamics\": {{ \"type\": \"string\" }}\n        }},\n        \"required\": [\"source\", \"target\", \"relation_type\", \"dynamics\"]\n      }}\n    }}\n  }},\n  \"required\": [\"relationships\"]\n}}\n```"
   }
 }

@@ -1,4 +1,5 @@
 import json
+import re
 import logging
 import ast
 from pydantic import BaseModel
@@ -128,7 +129,8 @@ class EventProfile(BaseModel):
     Example output:
     """
 
-    name: str
+    primary_name: str
+    secondary_name: str | None
     description: str | None
     history: str | None
     prominent_entities_associated: list[str] | None
@@ -147,7 +149,8 @@ class ObjectProfile(BaseModel):
     }
     """
 
-    name: str
+    primary_name: str
+    secondary_name: str | None
     type: str | None
     description: str | None
     history: str | None
@@ -167,7 +170,8 @@ class OrganizationProfile(BaseModel):
     }
     """
 
-    name: str
+    primary_name: str
+    secondary_name: str | None
     type: str | None
     description: str | None
     history: str | None
@@ -212,20 +216,6 @@ class EntityMiningWorkflow:
             "bedrock-runtime", region_name=self.config.get("aws").get("region")
         )
 
-        try:
-            chroma_client = chromadb.HttpClient(
-                host=self.config.get("chroma").get("host"),
-                port=self.config.get("chroma").get("port"),
-            )
-
-            self.chroma_collection = chroma_client.get_or_create_collection(
-                name=self.config.get("chroma").get("default_collection")
-            )
-        except Exception as e:
-            logger.warning(
-                f"Could not connect to ChromaDB: {e}. Vector search features will fail."
-            )
-
         self.model_id = self.config.get("aws").get("entity_miner_model_id")
         if not self.model_id:
             raise ValueError("entity_miner_model_id not found in config.json")
@@ -240,9 +230,35 @@ class EntityMiningWorkflow:
         model_cfg = self.config.get("model", {})
         self.model_temperature = model_cfg.get("temperature", 0)
         self.model_top_p = model_cfg.get("top_p", 0.9)
-        self.model_seed = model_cfg.get("seed")
+        self.model_seed = model_cfg.get("seed", 69420)
         self.fetch_workflow_prompt_templates()
+        self.initialize_chroma(local=True)
         logger.info("EntityMiningWorkflow initialized")
+
+    def initialize_chroma(self, local: bool = False) -> None:
+        try:
+            if local:
+                self.chroma_client = chromadb.HttpClient(
+                    host="localhost",
+                    port=8000,
+                )
+            else:
+                self.chroma_client = chromadb.HttpClient(
+                    host=self.config.get("chroma").get("host"),
+                    port=self.config.get("chroma").get("port"),
+                    settings=chromadb.Settings(anonymized_telemetry=False)
+                )
+        except Exception as e:
+            logger.error(f"Error initializing ChromaDB: {e}")
+            raise e
+
+        try:
+            self.chroma_collection = self.chroma_client.get_or_create_collection(
+                name=self.config.get("chroma").get("default_collection")
+            )
+        except Exception as e:
+            logger.error(f"Error getting ChromaDB collection: {e}")
+            raise e
 
     def fetch_workflow_prompt_templates(self) -> None:
         logger.info("Fetching workflow prompt templates")
@@ -319,7 +335,7 @@ class EntityMiningWorkflow:
         model_id: str,
         system_prompt: str,
         instruction_prompt: str,
-        temperature: float = 0.1,
+        temperature: float = 0,
         top_p: float = 0.9,
         seed: int = 69420,  # default seed for reproducibility
     ):
@@ -359,36 +375,52 @@ class EntityMiningWorkflow:
         response,
         model_output_schema: BaseModel,
     ) -> BaseModel:
-        try:
-            content = (
-                json.loads(response.get("body").read())
-                .get("choices")[0]
-                .get("message")
-                .get("content")
-            )
-            extracted_json = content.split("```json")[1].split("```")[0]
+        content = (
+            json.loads(response.get("body").read())
+            .get("choices")[0]
+            .get("message")
+            .get("content")
+        )
+        # logger.info(f"Response content:\n{content}\n")
+        
+        extracted_json = content.split("```json")[-1].split("```")[0]
 
-            try:
-                parsed = json.loads(extracted_json)
-            except json.JSONDecodeError:
-                # If JSON parsing fails, ast.literal_eval to handle single quotes
-                try:
-                    parsed = ast.literal_eval(extracted_json)
-                except (ValueError, SyntaxError):
-                    # Re-raise the original JSON error if both fail
-                    raise
+        parsed = json.loads(extracted_json)
 
-            # If the schema expects an object but the model returned a bare list, wrap it.
-            if model_output_schema is EntityExtractionAndClassification and isinstance(
-                parsed, list
-            ):
-                parsed = {"entities": parsed}
+        # # extract the json from the response
+        # pattern = r"```json\s*(.*?)\s*```"
+        # matches = re.findall(pattern, content, re.DOTALL)
 
-            logger.info(f"Response JSON parsed:\n{parsed}\n")
-            return model_output_schema.model_validate(parsed)
-        except Exception as e:
-            logger.error(f"Error parsing response JSON: {e}")
-            raise
+        # if not matches:
+        #     # Fallback: Try finding a block without the "json" language tag
+        #     # strictly at the end of the string if the tagged version fails.
+        #     fallback_pattern = r"```\s*(\{.*?\})\s*```"
+        #     matches = re.findall(fallback_pattern, content, re.DOTALL)
+
+        # if matches:
+        #     extracted_json = matches[-1].strip()
+            
+        #     try:
+        #         # Parse to ensure it's valid JSON
+        #         parsed = json.loads(extracted_json)
+        #     except json.JSONDecodeError:
+        #     # If JSON parsing fails, ast.literal_eval to handle single quotes
+        #         try:
+        #             parsed = ast.literal_eval(extracted_json)
+        #         except (ValueError, SyntaxError):
+        #             # Re-raise the original JSON error if both fail
+        #             raise
+        # else:
+        #     raise ValueError("No JSON found in the response")
+
+        # If the schema expects an object but the model returned a bare list, wrap it.
+        if model_output_schema is EntityExtractionAndClassification and isinstance(
+            parsed, list
+        ):
+            parsed = {"entities": parsed}
+
+        logger.info(f"Response JSON parsed:\n{parsed}\n")
+        return model_output_schema.model_validate(parsed)
 
     @staticmethod
     def _get_prompts(template: dict, label: str) -> tuple[str, str]:
@@ -432,7 +464,7 @@ class EntityMiningWorkflow:
         return self._parse_response(response, EntityExtractionAndClassification)
 
     def profile_entity(
-        self, text: str, entity_name: str, genre: str, category: str
+        self, text: str, entity_name: str, genre: str, category: str, significance: str = None
     ) -> BaseModel:
         if category not in self.profile_config:
             logger.warning(f"No profiler configured for category: {category}")
@@ -443,20 +475,25 @@ class EntityMiningWorkflow:
             config["template"], config["label"]
         )
 
-        try:
+
+        if category == "Person": 
+            if significance == "Minor":
+                pass
+            else:
+                instruction_prompt = instruction_prompt.format(
+                    entity_name=entity_name, genre=genre, text=text, significance=significance
+                )
+        else:
             instruction_prompt = instruction_prompt.format(
                 entity_name=entity_name, genre=genre, text=text
             )
-        except (KeyError, ValueError):
-            instruction_prompt = (
-                f"{instruction_prompt}\n\nEntity name: {entity_name}\n\nText:\n{text}"
-            )
 
         response = self.invoke_model(
-            model_id=self.model_id,
-            system_prompt=system_prompt,
-            instruction_prompt=instruction_prompt,
+        model_id=self.model_id,
+        system_prompt=system_prompt,
+        instruction_prompt=instruction_prompt,
         )
+
         return self._parse_response(response, config["schema"])
 
     # def extract_relationships(self, text: str) -> RelationshipExtractor:
@@ -489,7 +526,7 @@ class EntityMiningWorkflow:
         ) as executor:
             futures = [
                 executor.submit(
-                    self.profile_entity, text, entity.name, genre, entity.category
+                    self.profile_entity, text=text, entity_name=entity.name, genre=genre, category=entity.category, significance=entity.significance if entity.significance else None
                 )
                 for entity in extracted_entities.entities
             ]
@@ -513,19 +550,45 @@ class EntityMiningWorkflow:
     def save_entities_to_chroma(
         self, entity_profiles: list[BaseModel], genre: str, novel_name: str
     ) -> None:
+        doc_ids = []
+        for profile in entity_profiles:
+            try:
+                doc_id = f"{novel_name}-{profile.name}"
+            except AttributeError as ae:
+                doc_id = f"{novel_name}-{profile.primary_name}"
+            doc_ids.append(doc_id)
+                
         self.chroma_collection.add(
             documents=[profile.model_dump_json() for profile in entity_profiles],
-            metadatas=[{"genre": genre, "source": "entity_miner"}],
-            ids=[
-                f"{novel_name}-{profile.name}-{datetime.now().timestamp()}"
-                for profile in entity_profiles
-            ],
+            metadatas=[{"genre": genre, "novel_name": novel_name, "source": "entity_miner"} for profile in entity_profiles],
+            ids=doc_ids,
         )
         logger.info(f"Saved {len(entity_profiles)} entity profiles to ChromaDB")
 
 
 if __name__ == "__main__":
-    with open("../../stories/nadarr_prologue.txt", "r") as f:
+    # Try to find nadarr_prologue.txt in the current directory or lambda directory
+    prologue_path = "nadarr_prologue.txt"
+    if not os.path.exists(prologue_path):
+        # Try lambda directory
+        lambda_prologue_path = os.path.join(os.path.dirname(__file__), "nadarr_prologue.txt")
+        if os.path.exists(lambda_prologue_path):
+            prologue_path = lambda_prologue_path
+        else:
+            # Try stories directory (relative to workspace root)
+            stories_prologue_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "stories",
+                "nadarr_prologue.txt"
+            )
+            if os.path.exists(stories_prologue_path):
+                prologue_path = stories_prologue_path
+            else:
+                raise FileNotFoundError(
+                    f"nadarr_prologue.txt not found in current directory, {os.path.dirname(__file__)}, or {stories_prologue_path}"
+                )
+    
+    with open(prologue_path, "r") as f:
         text = f.read()
     entity_miner = EntityMiningWorkflow()
     result = entity_miner.execute(text)
