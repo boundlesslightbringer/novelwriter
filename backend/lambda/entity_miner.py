@@ -1,15 +1,14 @@
+import ast
+import datetime
 import hashlib
 import json
-import re
 import logging
-import ast
-from pydantic import BaseModel
-import boto3
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import chromadb
-import datetime
-
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import boto3
+import chromadb
+from pydantic import BaseModel
 
 # Configure logging
 logger = logging.getLogger()
@@ -201,7 +200,7 @@ def load_config():
         logger.error(f"Error loading config: {e}")
         raise
 
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         config = json.load(f)
 
     return config
@@ -589,7 +588,7 @@ class EntityMiningWorkflow:
             for profile in entity_profiles:
                 try:
                     doc_id = f"{novel_name}-{profile.name}"
-                except AttributeError as ae:
+                except AttributeError:
                     doc_id = f"{novel_name}-{profile.primary_name}"
                 doc_ids.append(doc_id)
 
@@ -628,7 +627,7 @@ def lambda_handler(event, context):
         # get the S3 bucket name and key
         bucket_name = event["Records"][0]["s3"]["bucket"]["name"]
         key = event["Records"][0]["s3"]["object"]["key"]
-        event_type = event["Records"][0]["eventName"]
+        # event_type = event["Records"][0]["eventName"]
 
 
         config = load_config()
@@ -643,17 +642,17 @@ def lambda_handler(event, context):
             story_text_hash = file_object_metadata.get("story_text_hash")
 
             if story_text_hash == hashlib.sha256(story_text.encode("utf-8")).hexdigest() or last_modified_ts < datetime.now() - datetime.timedelta(minutes=10):
-                logger.warning(f"Story text has not changed since last modification or last modification is more than 10 minutes ago")
+                logger.warning("Story text has not changed since last modification or last modification is more than 10 minutes ago")
                 return {
                     "status": "no change",
                     "num_mined_entities": 0,
                 }
 
         except s3_client.exceptions.NoSuchKey:
-            raise ValueError(f"Object '{key}' not found in bucket '{bucket_name}'")
+            raise ValueError(f"Object '{key}' not found in bucket '{bucket_name}'") from s3_client.exceptions.NoSuchKey
         except Exception as e:
             logger.error(f"S3 Error: {e}")
-            raise ValueError(f"S3 Error: {e}")
+            raise ValueError(f"S3 Error: {e}") from e
 
 
     # synchronous trigger called via React frontend
@@ -703,9 +702,9 @@ if __name__ == "__main__":
                     f"nadarr_prologue.txt not found in current directory, {os.path.dirname(__file__)}, or {stories_prologue_path}"
                 )
 
-    with open(prologue_path, "r") as f:
+    with open(prologue_path) as f:
         text = f.read()
-    entity_miner = EntityMiningWorkflow()
+    entity_miner = EntityMiningWorkflow(local_chroma=True)
     result = entity_miner.execute(text)
     # print(result)
     entity_miner.save_entities_to_chroma(

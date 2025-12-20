@@ -4,11 +4,20 @@
         "bucket_name": "novelwriter-stories-primary-26-11-2025",
         "default_story_path_prefix": "abs/",
         "dynamodb_table": "PromptTemplates",
-        "entity_miner_model_id": "deepseek.v3-v1:0"
+        "story_completion_llm": {
+            "model_id": "deepseek.v3-v1:0",
+            "temperature": 0.2
+        }
     },
     "chroma": {
-        "host": "10.0.1.75",
-        "port": 8000,
+        "local": {
+            "host": "localhost",
+            "port": 8000
+        },
+        "remote": {
+            "host": "10.0.1.75",
+            "port": 8000
+        },
         "default_collection": "abs"
     }
 }
