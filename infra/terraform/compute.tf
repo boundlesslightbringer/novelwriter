@@ -9,13 +9,6 @@ data "aws_ami" "amazon-linux-2" {
   }
 }
 
-# entity mining VM
-data "archive_file" "entity_miner_zip" {
-  type        = "zip"
-  source_file = "${path.module}/../../backend/lambda/entity_miner.py"
-  output_path = "${path.module}/../../backend/lambda/entity_miner.zip"
-}
-
 # react application server
 resource "aws_instance" "react-server" {
   ami                         = data.aws_ami.amazon-linux-2.id
@@ -59,6 +52,8 @@ resource "aws_instance" "react-server" {
   tags = {
     Name = "react-server"
   }
+
+  depends_on = [aws_instance.fastapi-server]
 }
 
 # FastAPI backend server
@@ -104,21 +99,23 @@ resource "aws_instance" "fastapi-server" {
   tags = {
     Name = "fastapi-server"
   }
+
+  depends_on = [aws_instance.chroma_server]
 }
 
 resource "aws_lambda_function" "entity-miner" {
   function_name    = "entity-miner"
   role             = aws_iam_role.entity_miner_lambda_role.arn
-  handler          = "entity_miner.lambda_handler"
-  runtime          = "python3.10"
-  filename         = data.archive_file.entity_miner_zip.output_path
-  source_code_hash = data.archive_file.entity_miner_zip.output_base64sha256
+  package_type =  "Image"
+  image_uri = "066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary@sha256:2c18b0ccdf7adea44faa7ec62589bf779f5af569610a5746b8d1bf065cb73e26"
+  timeout      = 420 # 7 minutes
+  memory_size  = 1024 # 1 GB
 
   vpc_config {
     subnet_ids         = [aws_subnet.private.id]
     security_group_ids = [aws_security_group.backend.id]
   }
-}
+} 
 
 resource "aws_lambda_function_event_invoke_config" "entity-miner-s3-file-modified" {
   function_name = aws_lambda_function.entity-miner.function_name

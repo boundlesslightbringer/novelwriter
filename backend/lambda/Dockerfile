@@ -6,6 +6,8 @@ COPY config.json ./
 COPY pydantic_models.py ./
 COPY entity_miner.py ./
 
-RUN pip install --no-cache-dir --user .
+# Install dependencies to system site-packages (not --user)
+# This ensures Lambda runtime can find the packages
+RUN pip install --no-cache-dir .
 
 CMD ["entity_miner.lambda_handler"]

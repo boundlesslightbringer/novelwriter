@@ -40,6 +40,7 @@ def load_config():
 class EntityMiningWorkflow:
     def __init__(
         self,
+        novel_name: str,
         local_chroma: bool = False,
         chroma_collection_name: str = None,
         model_temperature: float = 0,
@@ -511,7 +512,7 @@ if __name__ == "__main__":
 
     with open(prologue_path) as f:
         text = f.read()
-    entity_miner = EntityMiningWorkflow(local_chroma=True)
+    entity_miner = EntityMiningWorkflow(novel_name="nadarr_prologue", local_chroma=True)
     result = entity_miner.execute(text)
     # print(result)
     entity_miner.save_entities_to_chroma(
