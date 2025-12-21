@@ -1,19 +1,20 @@
-
+import hashlib
 import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import List, Optional
 
 import boto3
 import chromadb
-from boto3.resources.base import ServiceResource
-from fastapi import FastAPI, HTTPException, Query
+from botocore.config import Config
+from fastapi import FastAPI, HTTPException
 from langchain_aws import ChatBedrockConverse
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel
+
+from utils import get_template_from_dynamo, load_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,16 +22,27 @@ logger = logging.getLogger(__name__)
 
 # --- Pydantic Models ---
 
+
 class StoryUploadRequest(BaseModel):
     text: str
     filepath: str
     bucket_name: str
+    username: str
+    story_text_hash: str
+
 
 class EntityAddRequest(BaseModel):
     entity: str
     description: str
     key_relations: str
     history: str
+
+
+class MineEntitiesRequest(BaseModel):
+    story_text: str
+    novel_name: str
+    username: str
+
 
 class PromptTemplateResponse(BaseModel):
     novel_name: str
@@ -39,29 +51,23 @@ class PromptTemplateResponse(BaseModel):
     date: str
     version: str
 
+
 # --- Global State / Configuration ---
+
 
 class AppState:
     s3_client = None
     prompt_templates_table = None
     chroma_collection = None
     llm = None
+    lambda_client = None
     config = None
+
 
 state = AppState()
 
 # --- Initialization ---
 
-def load_config():
-    try:
-        with open("config.json", "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        logger.error("config.json not found.")
-        raise
-    except json.JSONDecodeError:
-        logger.error("Error decoding config.json.")
-        raise
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -71,80 +77,91 @@ async def lifespan(app: FastAPI):
         state.config = load_config()
         aws_config = state.config.get("aws", {})
         region = aws_config.get("region", "ap-south-1")
-        
+
         # AWS Resources
         state.s3_client = boto3.client("s3", region_name=region)
+
+        lambda_client_config = Config(
+            connect_timeout=10, 
+            read_timeout=600,    
+            retries={'max_attempts': 2}
+        )
+
+        state.lambda_client = boto3.client("lambda", region_name=region, config=lambda_client_config)
         dynamodb = boto3.resource("dynamodb", region_name=region)
-        state.prompt_templates_table = dynamodb.Table(state.config.get("aws").get("dynamodb_table"))
-        
+        state.prompt_templates_table = dynamodb.Table(
+            state.config.get("aws").get("dynamodb_table")
+        )
+
         # ChromaDB
         try:
-            chroma_client = chromadb.HttpClient(host=state.config.get("chroma").get("host"), port=state.config.get("chroma").get("port"))
-            state.chroma_collection = chroma_client.get_or_create_collection(name=state.config.get("chroma").get("default_collection"))
-            logger.info(f"ChromaDB collection '{state.config.get('chroma').get('default_collection')}' created or retrieved successfully.")
+            chroma_client = chromadb.HttpClient(
+                host=state.config.get("chroma").get("remote").get("host"),
+                port=state.config.get("chroma").get("remote").get("port"),
+            )
+            state.chroma_collection = chroma_client.get_or_create_collection(
+                name=state.config.get("chroma").get("default_collection")
+            )
+            logger.info(
+                f"ChromaDB collection '{state.config.get('chroma').get('default_collection')}' created or retrieved successfully."
+            )
         except Exception as e:
-            logger.warning(f"Could not connect to ChromaDB: {e}. Vector search features will fail.")
+            logger.warning(
+                f"Could not connect to ChromaDB: {e}. Vector search features will fail."
+            )
 
         # LLM
         state.llm = ChatBedrockConverse(
-            model_id="deepseek.v3-v1:0", 
-            region_name=region,
-            temperature=0.2
+            model_id="deepseek.v3-v1:0", region_name=region, temperature=0.2
         )
-        
+
         logger.info("Resources initialized successfully.")
     except Exception as e:
         logger.error(f"Failed to initialize resources: {e}")
         raise
-    
+
     yield
+
 
 app = FastAPI(lifespan=lifespan, title="NovelWriter API")
 
-# --- Helper Functions ---
-
-def get_template_from_dynamo(novel_name: str, template_type: str) -> dict:
-    try:
-        response = state.prompt_templates_table.get_item(
-            Key={"novel_name": novel_name, "template_type": template_type}
-        )
-        item = response.get("Item")
-        if not item:
-            raise ValueError(f"Template not found for {novel_name} - {template_type}")
-        return item
-    except Exception as e:
-        logger.error(f"DynamoDB Error: {e}")
-        raise
-
 # --- Endpoints ---
+
 
 @app.get("/api/story")
 async def get_story(bucket: str, object_key: str):
     """Fetches a story object from an S3 bucket."""
     try:
         response = state.s3_client.get_object(Bucket=bucket, Key=object_key)
-        content = response['Body'].read().decode('utf-8')
+        content = response["Body"].read().decode("utf-8")
         return {"content": content}
     except state.s3_client.exceptions.NoSuchKey:
-        raise HTTPException(status_code=404, detail=f"Object '{object_key}' not found in bucket '{bucket}'")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Object '{object_key}' not found in bucket '{bucket}'",
+        )
     except Exception as e:
         logger.error(f"S3 Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/api/story")
 async def upload_story(request: StoryUploadRequest):
     """Uploads a story object to an S3 bucket."""
+    story_text_hash = hashlib.sha256(request.text.encode("utf-8")).hexdigest()
     try:
         state.s3_client.put_object(
             Bucket=request.bucket_name,
             Key=request.filepath,
             Body=request.text,
-            ContentType="plain/text"
+            ContentType="plain/text",
+            Metadata={"username": request.username, "story_text_hash": story_text_hash},
         )
         return {"message": "Story uploaded successfully", "path": request.filepath}
     except Exception as e:
         logger.error(f"S3 Upload Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/templates")
 async def get_prompt_template(novel_name: str, template_type: str):
@@ -157,59 +174,131 @@ async def get_prompt_template(novel_name: str, template_type: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/api/similar_entities")
 async def get_similar_entities(query_text: str, n_results: int = 3):
     """Retrieves similar entity vectors from ChromaDB."""
     if not state.chroma_collection:
         raise HTTPException(status_code=503, detail="ChromaDB service unavailable")
-    
+
     try:
         results = state.chroma_collection.query(
-            query_texts=[query_text],
-            n_results=n_results
+            query_texts=[query_text], n_results=n_results
         )
-        
+
         entities = []
-        if results and results['documents']:
-            for i in range(len(results['documents'][0])):
-                entities.append({
-                    "content": results['documents'][0][i],
-                    "metadata": results['metadatas'][0][i] if results['metadatas'] else {},
-                    "distance": results['distances'][0][i] if results['distances'] else None
-                })
+        if results and results["documents"]:
+            for i in range(len(results["documents"][0])):
+                entities.append(
+                    {
+                        "content": results["documents"][0][i],
+                        "metadata": (
+                            results["metadatas"][0][i] if results["metadatas"] else {}
+                        ),
+                        "distance": (
+                            results["distances"][0][i] if results["distances"] else None
+                        ),
+                    }
+                )
         return {"entities": entities}
     except Exception as e:
         logger.error(f"ChromaDB Query Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/entity")
 async def add_entity(request: EntityAddRequest):
     """Adds an entity manually to the ChromaDB."""
     if not state.chroma_collection:
         raise HTTPException(status_code=503, detail="ChromaDB service unavailable")
-    
+
     try:
         document_text = f"{request.entity}: {request.description}\nRelations: {request.key_relations}\nHistory: {request.history}"
-        
+
         # TODO: Change to use a more robust ID generation strategy
         doc_id = f"{request.entity}-{datetime.now().timestamp()}"
-        
+
         state.chroma_collection.add(
             documents=[document_text],
             metadatas=[{"source": "manual_entry", "entity": request.entity}],
-            ids=[doc_id]
+            ids=[doc_id],
         )
         return {"message": "Entity added successfully", "id": doc_id}
     except Exception as e:
         logger.error(f"ChromaDB Add Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/mine_entities")
+async def mine_entities(request: MineEntitiesRequest):
+    """Mines entities from story text using the entity-miner Lambda function.
+    
+    This is a synchronous invocation that waits for the Lambda function to complete.
+    The frontend will wait for the response, which may take several seconds.
+    """
+    if not state.lambda_client:
+        raise HTTPException(status_code=503, detail="Lambda service unavailable")
+    
+    function_name = "entity-miner" 
+    payload = {
+        "text": request.story_text,
+        "novel_name": request.novel_name,
+        "username": request.username,
+    }
+    
+    try:
+        # Synchronous invocation - this will block until Lambda completes
+        logger.info(f"Invoking Lambda function '{function_name}' synchronously...")
+        response = state.lambda_client.invoke(
+            FunctionName=function_name,
+            InvocationType="RequestResponse",  # Synchronous invocation
+            Payload=json.dumps(payload),
+        )
+        
+        # Read the response payload
+        response_payload = json.loads(response["Payload"].read())
+        
+        # Check if Lambda function errored
+        if "FunctionError" in response:
+            error_message = response_payload.get("errorMessage", "Unknown Lambda error")
+            logger.error(f"Lambda function error: {error_message}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Lambda function error: {error_message}"
+            )
+        
+        # Check status code from Lambda response
+        status_code = response.get("StatusCode")
+        if status_code != 200:
+            logger.error(f"Lambda invocation returned status code: {status_code}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Lambda invocation failed with status code: {status_code}"
+            )
+        
+        logger.info("Lambda function completed successfully")
+        return {
+            "success": True,
+            "message": "Entities mined successfully",
+            "result": response_payload,
+        }
+        
+    except state.lambda_client.exceptions.ResourceNotFoundException:
+        logger.error(f"Lambda function '{function_name}' not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Lambda function '{function_name}' not found"
+        )
+    except Exception as e:
+        logger.error(f"Lambda invocation error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to invoke Lambda function: {str(e)}"
+        )
+
+
 @app.get("/api/generate")
-async def generate_story(
-    bucket: str, 
-    story_key: str, 
-    novel_name: str = "first novel"
-):
+async def generate_story(bucket: str, story_key: str, novel_name: str = "first novel"):
     """
     Generates a story continuation.
     1. Fetches current story from S3.
@@ -223,7 +312,7 @@ async def generate_story(
     # 1. Fetch Story
     try:
         s3_response = state.s3_client.get_object(Bucket=bucket, Key=story_key)
-        story_content = s3_response['Body'].read().decode('utf-8')
+        story_content = s3_response["Body"].read().decode("utf-8")
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Could not fetch story: {e}")
 
@@ -236,10 +325,14 @@ async def generate_story(
     )
     docs = text_splitter.create_documents([story_content])
     if not docs:
-        raise HTTPException(status_code=400, detail="Story content is empty or could not be split.")
+        raise HTTPException(
+            status_code=400, detail="Story content is empty or could not be split."
+        )
 
     current_fragment = docs[-1].page_content
-    context_fragment = "\n".join([doc.page_content for doc in docs[:-3]]) if len(docs) > 3 else ""
+    context_fragment = (
+        "\n".join([doc.page_content for doc in docs[:-3]]) if len(docs) > 3 else ""
+    )
 
     # 3. Fetch Templates
     try:
@@ -256,34 +349,40 @@ async def generate_story(
     vector_search_results = ""
     if state.chroma_collection:
         try:
-            results = state.chroma_collection.query(query_texts=[current_fragment], n_results=3)
-            if results and results['documents']:
-                vector_search_results = "\n".join(results['documents'][0])
+            results = state.chroma_collection.query(
+                query_texts=[current_fragment], n_results=3
+            )
+            if results and results["documents"]:
+                vector_search_results = "\n".join(results["documents"][0])
         except Exception as e:
             logger.warning(f"Vector search failed during generation: {e}")
 
     forecaster_chain = forecaster_prompt | state.llm | StrOutputParser()
-    
+
     try:
-        forecaster_response = forecaster_chain.invoke({
-            "vector_search_results": vector_search_results,
-            "current_story_fragment": current_fragment
-        })
+        forecaster_response = forecaster_chain.invoke(
+            {
+                "vector_search_results": vector_search_results,
+                "current_story_fragment": current_fragment,
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Forecaster chain failed: {e}")
 
     # 5. Run Completion
     completion_chain = completion_prompt | state.llm | StrOutputParser()
-    
+
     try:
-        completion_response = completion_chain.invoke({
-            "current_story_fragment": context_fragment, 
-            "forecaster_response": forecaster_response
-        })
+        completion_response = completion_chain.invoke(
+            {
+                "current_story_fragment": context_fragment,
+                "forecaster_response": forecaster_response,
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Completion chain failed: {e}")
 
     return {
         "forecaster_response": forecaster_response,
-        "story_continuation": completion_response
+        "story_continuation": completion_response,
     }

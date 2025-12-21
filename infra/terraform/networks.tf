@@ -182,6 +182,17 @@ resource "aws_vpc_endpoint" "bedrock" {
   }
 }
 
+resource "aws_vpc_endpoint" "dynamodb" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.aws-region}.dynamodb"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.private.id]
+
+  tags = {
+    Name = "novelwriter-dynamodb-endpoint"
+  }
+}
+
 # This security group controls traffic to/from the ALB
 # Ingress: Allows HTTP/HTTPS from the public internet 
 # Egress: Allows traffic to frontend and backend services for request forwarding
@@ -462,3 +473,4 @@ resource "aws_security_group_rule" "backend_to_chroma" {
   security_group_id        = aws_security_group.chroma_server.id
   description              = "Allow Chroma access from backend security group"
 }
+

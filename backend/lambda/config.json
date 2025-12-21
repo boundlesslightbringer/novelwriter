@@ -2,20 +2,17 @@
     "aws": {
         "region": "ap-south-1",
         "bucket_name": "novelwriter-stories-primary-26-11-2025",
-        "default_story_path_prefix": "abs/",
         "dynamodb_table": "PromptTemplates",
-        "story_completion_llm": {
-            "model_id": "deepseek.v3-v1:0",
-            "temperature": 0.2
-        }
+        "dynamodb_table_global_prompt_templates_novel_name": "global",
+        "entity_miner_model_id": "moonshot.kimi-k2-thinking"
     },
     "chroma": {
-        "local": {
-            "host": "localhost",
-            "port": 8000
-        },
         "remote": {
             "host": "10.0.1.47",
+            "port": 8000
+        },
+        "local": {
+            "host": "localhost",
             "port": 8000
         },
         "default_collection": "abs"

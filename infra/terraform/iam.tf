@@ -53,6 +53,38 @@ resource "aws_iam_role_policy_attachment" "lambda_s3_access" {
   policy_arn = aws_iam_policy.lambda_s3_read.arn
 }
 
+resource "aws_iam_policy" "lambda_dynamodb_access" {
+  name        = "lambda-dynamodb-access-policy"
+  description = "Allows Lambda to access DynamoDB prompt templates"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ]
+        Effect = "Allow"
+        Resource = [
+          aws_dynamodb_table.prompt_templates.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_dynamodb_access" {
+  role       = aws_iam_role.entity_miner_lambda_role.name
+  policy_arn = aws_iam_policy.lambda_dynamodb_access.arn
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_bedrock_access" {
+  role       = aws_iam_role.entity_miner_lambda_role.name
+  policy_arn = aws_iam_policy.bedrock_access.arn
+}
+
 resource "aws_iam_role" "react_server_role" {
   name = "react-server-role"
 
@@ -299,6 +331,31 @@ resource "aws_iam_role_policy_attachment" "fastapi_server_ecr_access" {
 resource "aws_iam_role_policy_attachment" "fastapi_server_ssm_access" {
   role       = aws_iam_role.fastapi_server_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_policy" "fastapi_server_lambda_access" {
+  name        = "fastapi-server-lambda-access-policy"
+  description = "Allows FastAPI server to invoke Lambda functions"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Effect = "Allow"
+        Resource = [
+          aws_lambda_function.entity-miner.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "fastapi_server_lambda_access" {
+  role       = aws_iam_role.fastapi_server_role.name
+  policy_arn = aws_iam_policy.fastapi_server_lambda_access.arn
 }
 
 resource "aws_iam_instance_profile" "fastapi_server_profile" {

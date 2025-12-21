@@ -39,4 +39,13 @@ export const generationAPI = {
         api.get('/generate', { params: { bucket, story_key: storyKey, novel_name: novelName } }),
 };
 
+export const mineEntitiesAPI = {
+    // POST /mine_entities - Mine entities from story text
+    // This is a synchronous Lambda invocation that will block the frontend until it completes
+    mineEntities: (storyText, novelName, username = 'default_user') =>
+        api.post('/mine_entities', 
+            { story_text: storyText, novel_name: novelName, username },
+        ),
+};
+
 export default api;

@@ -1,0 +1,9 @@
+__pycache__/
+.ruff_cache/
+em_env/
+entity_mining_plan.md
+entity_mining_prompt_templates.json 
+novelwriter_entity_miner.egg-info/
+build/
+stories/
+*.zip

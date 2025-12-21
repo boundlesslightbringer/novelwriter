@@ -50,7 +50,7 @@ variable "docdb_master_username" {
 variable "chroma_version" {
   description = "Version of Chroma to deploy"
   type        = string
-  default     = "1.3.5" # same as pyproject.toml
+  default     = "1.3.6" # same as pyproject.toml
 }
 
 variable "chroma_server_auth_credentials" {
