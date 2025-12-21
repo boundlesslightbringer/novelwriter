@@ -6,6 +6,7 @@ from datetime import datetime
 
 import boto3
 import chromadb
+from botocore.config import Config
 from fastapi import FastAPI, HTTPException
 from langchain_aws import ChatBedrockConverse
 from langchain_core.output_parsers import StrOutputParser
@@ -79,7 +80,14 @@ async def lifespan(app: FastAPI):
 
         # AWS Resources
         state.s3_client = boto3.client("s3", region_name=region)
-        state.lambda_client = boto3.client("lambda", region_name=region)
+
+        lambda_client_config = Config(
+            connect_timeout=10, 
+            read_timeout=600,    
+            retries={'max_attempts': 2}
+        )
+
+        state.lambda_client = boto3.client("lambda", region_name=region, config=lambda_client_config)
         dynamodb = boto3.resource("dynamodb", region_name=region)
         state.prompt_templates_table = dynamodb.Table(
             state.config.get("aws").get("dynamodb_table")
