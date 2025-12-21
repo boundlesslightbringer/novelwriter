@@ -7,8 +7,14 @@
         "entity_miner_model_id": "moonshot.kimi-k2-thinking"
     },
     "chroma": {
-        "host": "10.0.1.75",
-        "port": 8000,
+        "remote": {
+            "host": "10.0.1.75",
+            "port": 8000
+        },
+        "local": {
+            "host": "localhost",
+            "port": 8000
+        },
         "default_collection": "abs"
     }
 }

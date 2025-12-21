@@ -15,7 +15,7 @@
             "port": 8000
         },
         "remote": {
-            "host": "10.0.1.75",
+            "host": "10.0.1.47",
             "port": 8000
         },
         "default_collection": "abs"

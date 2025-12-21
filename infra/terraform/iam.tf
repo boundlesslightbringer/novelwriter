@@ -301,6 +301,31 @@ resource "aws_iam_role_policy_attachment" "fastapi_server_ssm_access" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+resource "aws_iam_policy" "fastapi_server_lambda_access" {
+  name        = "fastapi-server-lambda-access-policy"
+  description = "Allows FastAPI server to invoke Lambda functions"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "lambda:InvokeFunction"
+        ]
+        Effect = "Allow"
+        Resource = [
+          aws_lambda_function.entity-miner.arn
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "fastapi_server_lambda_access" {
+  role       = aws_iam_role.fastapi_server_role.name
+  policy_arn = aws_iam_policy.fastapi_server_lambda_access.arn
+}
+
 resource "aws_iam_instance_profile" "fastapi_server_profile" {
   name = "fastapi-server-profile"
   role = aws_iam_role.fastapi_server_role.name

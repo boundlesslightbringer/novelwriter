@@ -13,13 +13,13 @@ data "aws_ami" "amazon-linux-2" {
 data "archive_file" "entity_miner_zip" {
   type        = "zip"
   source_file = "${path.module}/../../backend/lambda/entity_miner.py"
-  output_path = "${path.module}/../../backend/  lambda/entity_miner.zip"
+  output_path = "${path.module}/../../backend/lambda/entity_miner.zip"
 }
 
 # react application server
 resource "aws_instance" "react-server" {
   ami                         = data.aws_ami.amazon-linux-2.id
-  instance_type               = "t3.small"
+  instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.public.id
   key_name                    = data.aws_key_pair.react-server-ed25519.key_name
   vpc_security_group_ids      = [aws_security_group.frontend.id]
@@ -64,7 +64,7 @@ resource "aws_instance" "react-server" {
 # FastAPI backend server
 resource "aws_instance" "fastapi-server" {
   ami                         = data.aws_ami.amazon-linux-2.id
-  instance_type               = "t3.small"
+  instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.private.id
   key_name                    = data.aws_key_pair.fastapi-server-ed25519.key_name
   vpc_security_group_ids      = [aws_security_group.backend.id]
@@ -110,7 +110,7 @@ resource "aws_lambda_function" "entity-miner" {
   function_name    = "entity-miner"
   role             = aws_iam_role.entity_miner_lambda_role.arn
   handler          = "entity_miner.lambda_handler"
-  runtime          = "python3.12"
+  runtime          = "python3.10"
   filename         = data.archive_file.entity_miner_zip.output_path
   source_code_hash = data.archive_file.entity_miner_zip.output_base64sha256
 

@@ -21,8 +21,8 @@ resource "aws_instance" "chroma_server" {
 
     mkdir -p /home/ec2-user/config
     curl -o /home/ec2-user/docker-compose.yml https://s3.amazonaws.com/public.trychroma.com/cloudformation/assets/docker-compose.yml
-    # Explicitly set version to 1.3.5 to match webserver client 
-    sed -i 's/CHROMA_VERSION/1.3.5/g' /home/ec2-user/docker-compose.yml
+    # Explicitly set version to 1.3.6 to match webserver client 
+    sed -i 's/CHROMA_VERSION/1.3.6/g' /home/ec2-user/docker-compose.yml
     chown ec2-user:ec2-user /home/ec2-user/docker-compose.yml
     
     # Create .env file with configuration

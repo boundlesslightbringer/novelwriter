@@ -223,7 +223,7 @@ async def add_entity(request: EntityAddRequest):
 
 @app.post("/api/mine_entities")
 async def mine_entities(request: MineEntitiesRequest):
-    """Mines entities from story text using the entity_miner Lambda function.
+    """Mines entities from story text using the entity-miner Lambda function.
     
     This is a synchronous invocation that waits for the Lambda function to complete.
     The frontend will wait for the response, which may take several seconds.
@@ -231,7 +231,7 @@ async def mine_entities(request: MineEntitiesRequest):
     if not state.lambda_client:
         raise HTTPException(status_code=503, detail="Lambda service unavailable")
     
-    function_name = "entity_miner"  # Lambda function name
+    function_name = "entity-miner" 
     payload = {
         "text": request.story_text,
         "novel_name": request.novel_name,
