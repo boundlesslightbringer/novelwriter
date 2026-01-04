@@ -22,4 +22,4 @@ COPY . .
 
 EXPOSE 7000
 
-CMD ["fastapi", "run", "main.py", "--proxy-headers", "--port", "7000", "--host", "0.0.0.0", "--timeout-keep-alive", "600"]
+CMD ["fastapi", "run", "main.py", "--proxy-headers", "--port", "7000", "--host", "0.0.0.0"]

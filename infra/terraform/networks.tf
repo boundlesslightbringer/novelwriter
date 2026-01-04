@@ -52,7 +52,7 @@ resource "aws_internet_gateway" "main" {
 
 # Elastic IP for NAT Gateway
 resource "aws_eip" "nat" {
-  vpc = true
+  # vpc = true
 
   tags = {
     Name = "novelwriter-nat-eip"
@@ -152,6 +152,45 @@ resource "aws_security_group" "bedrock_endpoint" {
   }
 }
 
+resource "aws_security_group" "ecr_endpoint" {
+  name        = "novelwriter-ecr-endpoint-sg"
+  description = "Controls access to the ECR VPC Endpoints"
+  vpc_id      = aws_vpc.main.id
+
+  # Allow traffic from frontend, backend, and Lambda security groups
+  ingress {
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [
+      aws_security_group.frontend.id,
+      aws_security_group.backend.id,
+    ]
+  }
+
+  tags = {
+    Name = "novelwriter-ecr-endpoint-sg"
+  }
+}
+
+resource "aws_security_group" "lambda_endpoint" {
+  name        = "novelwriter-lambda-endpoint-sg"
+  description = "Controls access to the Lambda VPC Endpoint"
+  vpc_id      = aws_vpc.main.id
+
+  # Allow traffic from the backend security group (FastAPI invokes Lambda)
+  ingress {
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.backend.id]
+  }
+
+  tags = {
+    Name = "novelwriter-lambda-endpoint-sg"
+  }
+}
+
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.main.id
   service_name      = "com.amazonaws.${var.aws-region}.s3"
@@ -190,6 +229,66 @@ resource "aws_vpc_endpoint" "dynamodb" {
 
   tags = {
     Name = "novelwriter-dynamodb-endpoint"
+  }
+}
+
+# ECR API endpoint for ECR API calls (get-login-password, etc.)
+resource "aws_vpc_endpoint" "ecr_api" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws-region}.ecr.api"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+
+  subnet_ids = [
+    aws_subnet.private.id
+  ]
+
+  security_group_ids = [
+    aws_security_group.ecr_endpoint.id,
+  ]
+
+  tags = {
+    Name = "novelwriter-ecr-api-endpoint"
+  }
+}
+
+# ECR DKR endpoint for Docker registry operations (docker pull/push)
+resource "aws_vpc_endpoint" "ecr_dkr" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws-region}.ecr.dkr"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+
+  subnet_ids = [
+    aws_subnet.private.id
+  ]
+
+  security_group_ids = [
+    aws_security_group.ecr_endpoint.id,
+  ]
+
+  tags = {
+    Name = "novelwriter-ecr-dkr-endpoint"
+  }
+}
+
+# Lambda endpoint for Lambda API calls (invoke function, etc.)
+resource "aws_vpc_endpoint" "lambda" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws-region}.lambda"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+
+  subnet_ids = [
+    aws_subnet.private.id
+  ]
+
+  security_group_ids = [
+    aws_security_group.lambda_endpoint.id,
+  ]
+
+  tags = {
+    Name = "novelwriter-lambda-endpoint"
   }
 }
 

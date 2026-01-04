@@ -1,0 +1,28 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  s3:
+    aws_sdk:
+      region: ap-south-1
+      s3:
+        bucket: otel-data
+        endpoint: s3.ap-south-1.amazonaws.com
+    marshaler: json
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [s3]
+    metrics:
+      receivers: [otlp]
+      exporters: [s3]
+    logs:
+      receivers: [otlp]
+      exporters: [s3]

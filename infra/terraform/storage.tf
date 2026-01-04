@@ -12,3 +12,7 @@ resource "aws_s3_bucket_notification" "stories_notification" {
 
   depends_on = [aws_lambda_function.entity-miner]
 }
+
+resource "aws_s3_bucket" "otel-data" {
+  bucket = "novelwriter-otel-data-primary-30-12-2025"
+}

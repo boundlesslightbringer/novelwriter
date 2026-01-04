@@ -17,7 +17,7 @@ resource "aws_instance" "react-server" {
   key_name                    = data.aws_key_pair.react-server-ed25519.key_name
   vpc_security_group_ids      = [aws_security_group.frontend.id]
   iam_instance_profile        = aws_iam_instance_profile.react_server_profile.name
-  associate_public_ip_address = true
+  associate_public_ip_address = false
 
   user_data = <<-EOF
     #!/bin/bash
@@ -59,7 +59,7 @@ resource "aws_instance" "react-server" {
 # FastAPI backend server
 resource "aws_instance" "fastapi-server" {
   ami                         = data.aws_ami.amazon-linux-2.id
-  instance_type               = "t3.micro"
+  instance_type               = "t3.micro" # TODO: change to t3.small
   subnet_id                   = aws_subnet.private.id
   key_name                    = data.aws_key_pair.fastapi-server-ed25519.key_name
   vpc_security_group_ids      = [aws_security_group.backend.id]
@@ -89,7 +89,13 @@ resource "aws_instance" "fastapi-server" {
       --restart unless-stopped \
       -p 7000:7000 \
       066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary:novelwriter-webserver-latest
-      EOF
+
+    # Run the OTel Collector
+    docker run -d --name otel-collector \
+    -p 4317:4317 -p 4318:4318 \
+    -v $(pwd)/collector-config.yaml:/etc/otelcol-contrib/config.yaml \
+    otel/opentelemetry-collector-contrib:latest
+    EOF
 
   cpu_options {
     core_count       = 1
@@ -114,6 +120,16 @@ resource "aws_lambda_function" "entity-miner" {
   vpc_config {
     subnet_ids         = [aws_subnet.private.id]
     security_group_ids = [aws_security_group.backend.id]
+  }
+
+  environment {
+    variables = {
+      AWS_LAMBDA_EXEC_WRAPPER = "/opt/otel-handler"
+      OTEL_SERVICE_NAME = "entity-miner"
+      OTEL_LOG_LEVEL = "info"
+      OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
+      OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318" # TODO: change to the actual endpoint
+    }
   }
 } 
 
