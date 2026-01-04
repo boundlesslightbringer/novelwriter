@@ -17,7 +17,7 @@ resource "aws_instance" "react-server" {
   key_name                    = data.aws_key_pair.react-server-ed25519.key_name
   vpc_security_group_ids      = [aws_security_group.frontend.id]
   iam_instance_profile        = aws_iam_instance_profile.react_server_profile.name
-  associate_public_ip_address = false
+  associate_public_ip_address = true
 
   user_data = <<-EOF
     #!/bin/bash
@@ -31,18 +31,18 @@ resource "aws_instance" "react-server" {
     sudo usermod -a -G docker ec2-user
     
     # Authenticate with ECR
-    aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 066777916969.dkr.ecr.ap-south-1.amazonaws.com
+    sudo aws ecr get-login-password --region ap-south-1 | sudo docker login --username AWS --password-stdin 066777916969.dkr.ecr.ap-south-1.amazonaws.com
     
     # Pull the React frontend image from ECR
-    docker pull 066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary:frontend-latest
+    sudo docker pull 066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary:frontend-latest
     
     # Run the React frontend container
-    docker run -d \
+    sudo docker run -d \
       --name react-frontend \
       --restart unless-stopped \
       -p 80:80 \
       066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary:frontend-latest
-      EOF
+    EOF
 
   cpu_options {
     core_count       = 1
@@ -59,7 +59,7 @@ resource "aws_instance" "react-server" {
 # FastAPI backend server
 resource "aws_instance" "fastapi-server" {
   ami                         = data.aws_ami.amazon-linux-2.id
-  instance_type               = "t3.micro" # TODO: change to t3.small
+  instance_type               = "t3.small"
   subnet_id                   = aws_subnet.private.id
   key_name                    = data.aws_key_pair.fastapi-server-ed25519.key_name
   vpc_security_group_ids      = [aws_security_group.backend.id]
@@ -68,6 +68,8 @@ resource "aws_instance" "fastapi-server" {
 
   user_data = <<-EOF
     #!/bin/bash
+    set -euo pipefail
+
     # Update system and install dependencies
     sudo yum update -y
     sudo yum install -y docker aws-cli
@@ -75,26 +77,32 @@ resource "aws_instance" "fastapi-server" {
     # Start Docker service
     sudo systemctl enable docker
     sudo systemctl start docker
+    until sudo systemctl is-active --quiet docker; do sleep 2; done
     sudo usermod -a -G docker ec2-user
     
     # Authenticate with ECR
-    aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 066777916969.dkr.ecr.ap-south-1.amazonaws.com
+    sudo aws ecr get-login-password --region ap-south-1 | sudo docker login --username AWS --password-stdin 066777916969.dkr.ecr.ap-south-1.amazonaws.com
     
     # Pull the FastAPI backend image from ECR
-    docker pull 066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary:novelwriter-webserver-latest
+    sudo docker pull 066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary:novelwriter-webserver-latest
     
     # Run the FastAPI backend container
-    docker run -d \
+    sudo docker run -d \
       --name fastapi-backend \
       --restart unless-stopped \
       -p 7000:7000 \
       066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary:novelwriter-webserver-latest
 
+    # Pull the OTel Collector image from ECR
+    sudo docker pull 066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary:otel-collector-latest
+
     # Run the OTel Collector
-    docker run -d --name otel-collector \
-    -p 4317:4317 -p 4318:4318 \
-    -v $(pwd)/collector-config.yaml:/etc/otelcol-contrib/config.yaml \
-    otel/opentelemetry-collector-contrib:latest
+    sudo docker run -d \
+    --name otel-collector \
+    --restart unless-stopped \
+    -p 4317:4317 \
+    -p 4318:4318 \
+    066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary:otel-collector-latest
     EOF
 
   cpu_options {
@@ -113,7 +121,7 @@ resource "aws_lambda_function" "entity-miner" {
   function_name    = "entity-miner"
   role             = aws_iam_role.entity_miner_lambda_role.arn
   package_type =  "Image"
-  image_uri = "066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary@sha256:2c18b0ccdf7adea44faa7ec62589bf779f5af569610a5746b8d1bf065cb73e26"
+  image_uri = "066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary@sha256:b16773e9437357fab132d5a3d3b01208f99ff8ddcd6ddc3c92fcb343d028ff2c"
   timeout      = 420 # 7 minutes
   memory_size  = 1024 # 1 GB
 
@@ -124,7 +132,6 @@ resource "aws_lambda_function" "entity-miner" {
 
   environment {
     variables = {
-      AWS_LAMBDA_EXEC_WRAPPER = "/opt/otel-handler"
       OTEL_SERVICE_NAME = "entity-miner"
       OTEL_LOG_LEVEL = "info"
       OTEL_EXPORTER_OTLP_PROTOCOL = "http/protobuf"
