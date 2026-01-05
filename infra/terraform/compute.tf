@@ -59,7 +59,7 @@ resource "aws_instance" "react-server" {
 # FastAPI backend server
 resource "aws_instance" "fastapi-server" {
   ami                         = data.aws_ami.amazon-linux-2.id
-  instance_type               = "t3.small"
+  instance_type               = "t3.micro" # TODO: change to t3.small
   subnet_id                   = aws_subnet.private.id
   key_name                    = data.aws_key_pair.fastapi-server-ed25519.key_name
   vpc_security_group_ids      = [aws_security_group.backend.id]
@@ -121,7 +121,7 @@ resource "aws_lambda_function" "entity-miner" {
   function_name    = "entity-miner"
   role             = aws_iam_role.entity_miner_lambda_role.arn
   package_type =  "Image"
-  image_uri = "066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary@sha256:b16773e9437357fab132d5a3d3b01208f99ff8ddcd6ddc3c92fcb343d028ff2c"
+  image_uri = "066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary@sha256:ecd2975b83b2e7af258805daae437c388ff39232d5dab1c7cfe518633c4f3c20"
   timeout      = 420 # 7 minutes
   memory_size  = 1024 # 1 GB
 

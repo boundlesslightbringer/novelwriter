@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from tkinter import E
 
 import boto3
 import chromadb
@@ -79,15 +80,11 @@ def setup_otel():
     # Instrumentation Setup
     LoggingInstrumentor().instrument(set_logging_format=True)
     BotocoreInstrumentor().instrument()
-    AwsLambdaInstrumentor().instrument()
-
     ThreadingInstrumentor().instrument()
 
     return trace.get_tracer("entity_miner")
 
-
 tracer = setup_otel()
-
 
 class EntityMiningWorkflow:
     def __init__(
@@ -489,11 +486,13 @@ def lambda_handler(event, context_obj):
                     username = file_object["Metadata"].get("username", "unknown")
                 else:
                     raise ValueError(f"Unsupported event source: {record.get('eventSource')}")
-            else:
-                # Direct invocation
+            # asynchronous invocation from the frontend. This is the main entry point for the Lambda function.
+            elif "text" in event: 
                 story_text = event.get("text")
                 novel_name = event.get("novel_name")
                 username = event.get("username", "unknown")
+            else:
+                raise ValueError(f"'text' not in Lambda JSON Payload")
 
             span.set_attribute("novel.name", novel_name)
             span.set_attribute("username", username)
@@ -538,6 +537,8 @@ def lambda_handler(event, context_obj):
             except Exception as e:
                 logger.warning(f"Failed to flush traces: {e}")
 
+# dirty but works. TODO: refactor OTel instrumentation to be more pythonic.
+AwsLambdaInstrumentor().instrument()
 
 if __name__ == "__main__":
     prologue_path = "stories/nadarr_prologue.txt"
