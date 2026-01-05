@@ -233,9 +233,8 @@ async def add_entity(request: EntityAddRequest):
 async def mine_entities(request: MineEntitiesRequest):
     """Mines entities from story text using the entity-miner Lambda function.
     
-    This is a synchronous invocation that waits for the Lambda function to complete.
-    The frontend will wait for the response, which may take several seconds.
-    """
+    This is an asynchronous invocation that does not for the Lambda function to complete.
+    Need to find a way for the frontend to indicate that the process is running."""
     if not state.lambda_client:
         raise HTTPException(status_code=503, detail="Lambda service unavailable")
     
@@ -247,40 +246,27 @@ async def mine_entities(request: MineEntitiesRequest):
     }
     
     try:
-        # Synchronous invocation - this will block until Lambda completes
-        logger.info(f"Invoking Lambda function '{function_name}' synchronously...")
+        logger.info(f"Invoking Lambda function '{function_name}' from the 'Analyse Story' button...")
         response = state.lambda_client.invoke(
             FunctionName=function_name,
-            InvocationType="RequestResponse",  # Synchronous invocation
-            Payload=json.dumps(payload),
+            InvocationType="Event",  
+            Payload=json.dumps(payload)   
         )
-        
-        # Read the response payload
-        response_payload = json.loads(response["Payload"].read())
-        
-        # Check if Lambda function errored
-        if "FunctionError" in response:
-            error_message = response_payload.get("errorMessage", "Unknown Lambda error")
-            logger.error(f"Lambda function error: {error_message}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Lambda function error: {error_message}"
-            )
         
         # Check status code from Lambda response
         status_code = response.get("StatusCode")
-        if status_code != 200:
+        if status_code != 202:
             logger.error(f"Lambda invocation returned status code: {status_code}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Lambda invocation failed with status code: {status_code}"
             )
         
-        logger.info("Lambda function completed successfully")
+        logger.info("Lambda function invoked successfully")
+        
         return {
-            "success": True,
-            "message": "Entities mined successfully",
-            "result": response_payload,
+            "status": "success",
+            "message": "Lambda function invoked successfully",
         }
         
     except state.lambda_client.exceptions.ResourceNotFoundException:
