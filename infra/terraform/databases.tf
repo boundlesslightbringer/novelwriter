@@ -48,11 +48,11 @@ resource "aws_instance" "chroma_server" {
     volume_type = "gp2"
   }
 
-  # Ensure security group is created first
+  # ensure security group is created first
   depends_on = [aws_security_group_rule.backend_to_chroma]
 }
 
-# dynamo db
+
 resource "aws_dynamodb_table" "prompt_templates" {
   name         = "PromptTemplates"
   billing_mode = "PAY_PER_REQUEST"
@@ -71,5 +71,36 @@ resource "aws_dynamodb_table" "prompt_templates" {
 
   tags = {
     Name = "PromptTemplates"
+  }
+}
+
+/*
+Table: Jobs
+--------------------------------
+| Attribute | Type | Notes |
+|--------|------|------|
+| job_id (PK) | String | UUID |
+| user_id | String | Single-user or future multi-user |
+| status | String | PENDING, RUNNING, DONE, FAILED |
+| created_at | Number | Epoch timestamp |
+| updated_at | Number | Epoch timestamp |
+| input_type | String | `TEXT` or `S3` |
+| input_ref | String | Inline text or s3://bucket/key |
+| error_message | String | Optional |
+*/
+resource "aws_dynamodb_table" "job_records" {
+  name         = "JobRecords"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "job_id"
+  range_key    = "created_at"
+
+  attribute {
+    name = "job_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "created_at"
+    type = "N"
   }
 }

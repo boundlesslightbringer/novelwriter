@@ -26,9 +26,14 @@ output "s3_bucket_name" {
   value       = aws_s3_bucket.stories.id
 }
 
-output "dynamodb_table_name" {
+output "dynamodb_prompt_templates_table_name" {
   description = "DynamoDB table name for prompt templates"
   value       = aws_dynamodb_table.prompt_templates.name
+}
+
+output "dynamodb_job_records_table_name" {
+  description = "DynamoDB table name for job records"
+  value       = aws_dynamodb_table.job_records.name
 }
 
 output "lambda_function_name" {

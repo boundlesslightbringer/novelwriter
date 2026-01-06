@@ -469,8 +469,17 @@ class EntityMiningWorkflow:
                 return False
 
 
-def lambda_handler(event, context_obj):
+def lambda_handler(event, context_obj) -> dict:
     provider = trace.get_tracer_provider()
+
+
+    result = {
+        "status": None,
+        "error_type": None,
+        "error_message": None,
+        "result_timestamp": int(datetime.datetime.now().timestamp()),
+    }
+
     try:
         with tracer.start_as_current_span("lambda_handler") as span:
             if "Records" in event and len(event.get("Records", [])) > 0:
@@ -510,25 +519,20 @@ def lambda_handler(event, context_obj):
             span.set_attribute("entities.mined", len(mined_entities["profiled_entities"]))
             span.set_attribute("entities.saved", saved)
 
-            return {
-                "status": "success" if saved else "error",
-                "num_mined_entities": len(mined_entities["profiled_entities"]),
-                "genre": mined_entities.get("genre"),
-            }
+            result["status"] = "SUCCESS" if saved else "FAILURE"
+            return result
     except ValueError as e:
         logger.error(f"Validation error: {e}")
-        return {
-            "status": "error",
-            "error_type": "ValidationError",
-            "error_message": str(e),
-        }
+        result["status"] = "FAILURE"
+        result["error_type"] = "ValidationError"
+        result["error_message"] = str(e)
+        return result
     except Exception as e:
         logger.error(f"Unexpected error in lambda_handler: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "error_type": type(e).__name__,
-            "error_message": str(e),
-        }
+        result["status"] = "FAILURE"
+        result["error_type"] = type(e).__name__
+        result["error_message"] = str(e)
+        return result
     finally:
         # Always flush traces, even on error
         if provider and hasattr(provider, "force_flush"):

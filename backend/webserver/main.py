@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -82,15 +83,18 @@ async def lifespan(app: FastAPI):
         state.s3_client = boto3.client("s3", region_name=region)
 
         lambda_client_config = Config(
-            connect_timeout=10, 
-            read_timeout=600,    
-            retries={'max_attempts': 2}
+            connect_timeout=10, read_timeout=600, retries={"max_attempts": 2}
         )
 
-        state.lambda_client = boto3.client("lambda", region_name=region, config=lambda_client_config)
+        state.lambda_client = boto3.client(
+            "lambda", region_name=region, config=lambda_client_config
+        )
         dynamodb = boto3.resource("dynamodb", region_name=region)
         state.prompt_templates_table = dynamodb.Table(
             state.config.get("aws").get("dynamodb_table")
+        )
+        state.job_records_table = dynamodb.Table(
+            state.config.get("aws").get("jobs_table")
         )
 
         # ChromaDB
@@ -110,9 +114,14 @@ async def lifespan(app: FastAPI):
                 f"Could not connect to ChromaDB: {e}. Vector search features will fail."
             )
 
-        # LLM
         state.llm = ChatBedrockConverse(
-            model_id="deepseek.v3-v1:0", region_name=region, temperature=0.2
+            model_id=state.config.get("aws")
+            .get("story_completion_llm")
+            .get("model_id"),
+            region_name=region,
+            temperature=state.config.get("aws")
+            .get("story_completion_llm")
+            .get("temperature"),
         )
 
         logger.info("Resources initialized successfully.")
@@ -167,11 +176,16 @@ async def upload_story(request: StoryUploadRequest):
 async def get_prompt_template(novel_name: str, template_type: str):
     """Fetches prompt templates from DynamoDB."""
     try:
-        item = get_template_from_dynamo(novel_name, template_type)
-        return item
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        item = state.prompt_templates_table.get_item(
+            Key={"novel_name": novel_name, "template_type": template_type}
+        )
+        if not item.get("Item"):
+            raise HTTPException(
+                status_code=404, detail=f"Template not found for {template_type}"
+            )
+        return item.get("Item")
     except Exception as e:
+        logger.error(f"DynamoDB Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -229,58 +243,59 @@ async def add_entity(request: EntityAddRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/mine_entities")
-async def mine_entities(request: MineEntitiesRequest):
+@app.post("/api/start_entity_mining")
+async def start_entity_mining(request: MineEntitiesRequest):
     """Mines entities from story text using the entity-miner Lambda function.
-    
-    This is an asynchronous invocation that does not for the Lambda function to complete.
-    Need to find a way for the frontend to indicate that the process is running."""
+
+    Adds a job record to the DynamoDB table with the status "RUNNING".
+    Calls a Step Functions state machine to invoke the Lambda function asynchronously.
+    """
     if not state.lambda_client:
         raise HTTPException(status_code=503, detail="Lambda service unavailable")
-    
-    function_name = "entity-miner" 
-    payload = {
-        "text": request.story_text,
-        "novel_name": request.novel_name,
-        "username": request.username,
-    }
-    
-    try:
-        logger.info(f"Invoking Lambda function '{function_name}' from the 'Analyse Story' button...")
-        response = state.lambda_client.invoke(
-            FunctionName=function_name,
-            InvocationType="Event",  
-            Payload=json.dumps(payload)   
-        )
-        
-        # Check status code from Lambda response
-        status_code = response.get("StatusCode")
-        if status_code != 202:
-            logger.error(f"Lambda invocation returned status code: {status_code}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Lambda invocation failed with status code: {status_code}"
-            )
-        
-        logger.info("Lambda function invoked successfully")
-        
-        return {
-            "status": "success",
-            "message": "Lambda function invoked successfully",
+
+    job_id = str(uuid.uuid4())
+    created_at = int(datetime.now().timestamp())
+    put_job_record_response = state.job_records_table.put_item(
+        Item={
+            "job_id": job_id,
+            "user_id": request.username,
+            "status": "RUNNING",
+            "created_at": created_at,
+            "input_type": "TEXT",
         }
-        
-    except state.lambda_client.exceptions.ResourceNotFoundException:
-        logger.error(f"Lambda function '{function_name}' not found")
+    )
+    if put_job_record_response.get("ResponseMetadata").get("HTTPStatusCode") != 200:
         raise HTTPException(
-            status_code=404,
-            detail=f"Lambda function '{function_name}' not found"
+            status_code=500, detail="Failed to add job record to DynamoDB"
         )
-    except Exception as e:
-        logger.error(f"Lambda invocation error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to invoke Lambda function: {str(e)}"
-        )
+
+    invoke_lambda_response = state.lambda_client.invoke(
+        FunctionName="entity-miner",
+        InvocationType="Event",
+        Payload=json.dumps(
+            {
+                "text": request.story_text,
+                "novel_name": request.novel_name,
+                "username": request.username,
+            }
+        ),
+    )
+    if invoke_lambda_response.get("ResponseMetadata").get("HTTPStatusCode") != 202:
+        raise HTTPException(status_code=500, detail="Failed to invoke Lambda function")
+
+    return {
+        "job_id": job_id,
+        "created_at": created_at,
+        "status": "RUNNING",
+    }
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    response = state.job_records_table.get_item(Key={"job_id": job_id})
+    if not response.get("Item"):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return response.get("Item")
 
 
 @app.get("/api/generate")
