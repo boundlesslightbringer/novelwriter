@@ -2,7 +2,7 @@ resource "aws_lambda_function" "entity-miner" {
   function_name    = "entity-miner"
   role             = aws_iam_role.entity_miner_lambda_role.arn
   package_type =  "Image"
-  image_uri = "066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary@sha256:ecd2975b83b2e7af258805daae437c388ff39232d5dab1c7cfe518633c4f3c20"
+  image_uri = "066777916969.dkr.ecr.ap-south-1.amazonaws.com/primary@sha256:ca588582f16fbf841cec147674bd15e5856ec05b7fc947ea1df0735c587199a1"
   timeout      = 420 # 7 minutes
   memory_size  = 1024 # 1 GB
 

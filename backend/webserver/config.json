@@ -5,6 +5,7 @@
         "default_story_path_prefix": "abs/",
         "dynamodb_table": "PromptTemplates",
         "jobs_table": "Jobs",
+        "entity_mining_step_function_arn": "arn:aws:states:ap-south-1:066777916969:stateMachine:entity-mining-state-machine",
         "story_completion_llm": {
             "model_id": "deepseek.v3-v1:0",
             "temperature": 0.2

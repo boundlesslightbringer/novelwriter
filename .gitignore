@@ -22,3 +22,4 @@ chromadb/
 keys/
 *_env/
 stories/
+scripts/

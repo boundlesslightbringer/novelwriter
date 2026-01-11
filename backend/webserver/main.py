@@ -89,6 +89,9 @@ async def lifespan(app: FastAPI):
         state.lambda_client = boto3.client(
             "lambda", region_name=region, config=lambda_client_config
         )
+
+        state.step_functions_client = boto3.client("stepfunctions", region_name=region)
+
         dynamodb = boto3.resource("dynamodb", region_name=region)
         state.prompt_templates_table = dynamodb.Table(
             state.config.get("aws").get("dynamodb_table")
@@ -227,10 +230,11 @@ async def add_entity(request: EntityAddRequest):
         raise HTTPException(status_code=503, detail="ChromaDB service unavailable")
 
     try:
+        # TODO: This string needs to be generated from a template in DynamoDB
         document_text = f"{request.entity}: {request.description}\nRelations: {request.key_relations}\nHistory: {request.history}"
 
         # TODO: Change to use a more robust ID generation strategy
-        doc_id = f"{request.entity}-{datetime.now().timestamp()}"
+        doc_id = f"{request.entity}-{int(datetime.now().timestamp())}"
 
         state.chroma_collection.add(
             documents=[document_text],
@@ -247,51 +251,40 @@ async def add_entity(request: EntityAddRequest):
 async def start_entity_mining(request: MineEntitiesRequest):
     """Mines entities from story text using the entity-miner Lambda function.
 
-    Adds a job record to the DynamoDB table with the status "RUNNING".
-    Calls a Step Functions state machine to invoke the Lambda function asynchronously.
+    Invokes the entity-miner step function. 
     """
-    if not state.lambda_client:
-        raise HTTPException(status_code=503, detail="Lambda service unavailable")
-
+    if not state.step_functions_client:
+        raise HTTPException(status_code=503, detail="Step Functions service unavailable")
+        
     job_id = str(uuid.uuid4())
     created_at = int(datetime.now().timestamp())
-    put_job_record_response = state.job_records_table.put_item(
-        Item={
+
+    response = state.step_functions_client.start_execution(
+        stateMachineArn = state.config.get("entity_mining_step_function_arn"),
+        name = f"entity-mining-run-{job_id}-{created_at}",
+        input = json.dumps({
+            "text": request.story_text,
+            "novel_name": request.novel_name,
+            "username": request.username,
+        })
+
+    )
+
+    if state.step_functions_client.describe_execution(executionArn = response.get("executionArn")).get("status") == "RUNNING":
+        return {
             "job_id": job_id,
-            "user_id": request.username,
-            "status": "RUNNING",
             "created_at": created_at,
-            "input_type": "TEXT",
+            "response": response,
         }
-    )
-    if put_job_record_response.get("ResponseMetadata").get("HTTPStatusCode") != 200:
-        raise HTTPException(
-            status_code=500, detail="Failed to add job record to DynamoDB"
-        )
-
-    invoke_lambda_response = state.lambda_client.invoke(
-        FunctionName="entity-miner",
-        InvocationType="Event",
-        Payload=json.dumps(
-            {
-                "text": request.story_text,
-                "novel_name": request.novel_name,
-                "username": request.username,
-            }
-        ),
-    )
-    if invoke_lambda_response.get("ResponseMetadata").get("HTTPStatusCode") != 202:
-        raise HTTPException(status_code=500, detail="Failed to invoke Lambda function")
-
-    return {
-        "job_id": job_id,
-        "created_at": created_at,
-        "status": "RUNNING",
-    }
+    else:
+        raise HTTPException(status_code=500, detail="Failed to start entity mining step function")
 
 
 @app.get("/api/jobs/{job_id}")
 async def get_job_status(job_id: str):
+    """
+    Fetches the status of a job from DynamoDB. The frontend will repeatedly call this endpoint to get the status of the job. Estimated frequency is once every 5 seconds.
+    """
     response = state.job_records_table.get_item(Key={"job_id": job_id})
     if not response.get("Item"):
         raise HTTPException(status_code=404, detail="Job not found")
