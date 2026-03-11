@@ -10,6 +10,8 @@ description: Audits scene drafts for POV discipline violations — head-hopping,
 **Skill name:** `pov-consistency-maintenance`
 **Purpose:** Verify that the scene draft produced by Scene Construction holds POV discipline with complete consistency — no access to other characters' inner states, no omniscient perspective intrusions, no actions taken on knowledge the POV character does not have, no drift from the established voice profile, and no description of the POV character's own face or expression from outside. Every violation is flagged with a specific location in the text and a concrete correction note. The main agent decides whether to accept the scene or re-invoke Scene Construction.
 
+> **Sibling skills:** This skill audits output from [scene-construction](../scene-construction/SKILL.md). The voice profile it checks against is produced by [character-voice-differentiation](../../character/character-voice-differentiation/SKILL.md).
+
 ---
 
 ## Core

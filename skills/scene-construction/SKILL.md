@@ -10,6 +10,8 @@ description: Writes a single scene in draft prose. Applies the POV character's v
 **Skill name:** `scene-construction`
 **Purpose:** Write the scene. Everything upstream — character psychology, world state, scene parameters, voice profile, pacing guidance — has been prepared by prior skills or the main agent. This skill executes the prose. It writes one complete scene in draft, entirely in the POV character's voice and perception, from the parameters it receives. The output is raw discovery material — the first full pass — not the finished product.
 
+> **Sibling skills:** Output is audited by [pov-consistency-maintenance](../pov-consistency-maintenance/SKILL.md). Optional input from [pacing](../pacing/SKILL.md) (when psychological state has shifted significantly) governs prose rhythm.
+
 ---
 
 ## Core

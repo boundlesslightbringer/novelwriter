@@ -12,7 +12,7 @@ This document instructs an LLM (the **skill drafter**) how to create individual 
 | **Deliverable format**   | **Claude SKILL.md.** Each skill is produced as a Claude skill: one directory per skill containing `SKILL.md` (and optionally `reference.md`, `examples.md`). See §5 for structure and naming.                                                                                                                                                                                                                                                                                                                                                               |
 | **Length**               | No maximum length per skill. The drafter may include as much as the skill needs; skills can be edited later.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | **Batching**             | Draft **one skill at a time**. Optionally, when drafting a group, the drafter may receive the full group subsection from the spec plus the permanent context.                                                                                                                                                                                                                                                                                                                                                                                               |
-| **Order**                | Draft in **group order** (1 → 7) and, within a group, in **dependency order** (e.g. Character Conception before Character Creation).                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Order**                | Draft in **group order** (1 → 5) and, within a group, in **dependency order** (e.g. Character Conception before Character Creation).                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | **Audience**             | Skill documents are consumed by (a) the **main agent** (or human) when deciding when to call a skill and what to pass, and/or (b) **implementers** building LangGraph nodes/tools.                                                                                                                                                                                                                                                                                                                                                                          |
 | **World Bible**          | Skills never read or write the World Bible directly; they receive **curated excerpts** from the main agent and return outputs that the main agent uses to update the World Bible. This is non-negotiable in every skill.                                                                                                                                                                                                                                                                                                                                    |
 | **Research Integration** | A **separate skill** in Group 1 (Planning). It is **not** invoked on every run of Worldbuilding. The main agent invokes Research Integration **only when** factual grounding is needed for a given domain (e.g. medieval warfare, political structures, geography). Its output is reference material that the main agent may then pass into Worldbuilding or other skills as needed. Draft it with Group 1; in the skill document, state clearly that it is invoked occasionally when using Worldbuilding (or other skills that require factual grounding). |
@@ -57,8 +57,8 @@ The drafter only needs to know **which modules exist** and **what they represent
 - **Group 3 – Plotting & Structure:** Gardener Plotting System, Multiple POV Structure, Braided Narrative Technique, Conflict Layering, Plot Thread Tracking  
 - **Group 4 – Writing Execution:** Scene Construction, POV Consistency Maintenance, Pacing, Layering History and Legend, Professional Writing Techniques  
 - **Group 5 – Consequence & Realism:** Consequence Cascade Implementation, Balancing Realism and Fantasy  
-- **Group 6 – Problem-Solving:** Resolving Obstacles and Untangling Tangles  
-- **Group 7 – Refinement:** Self-Editing and Refinement, POV Consistency Auditing
+- ~~**Group 6 – Problem-Solving:** Resolving Obstacles and Untangling Tangles~~ *(Shelved for first draft)*  
+- ~~**Group 7 – Refinement:** Self-Editing and Refinement, POV Consistency Auditing~~ *(Shelved for first draft)*
 
 ### 2.4 Skill ↔ World Bible Interface (Summary)
 
@@ -71,14 +71,14 @@ The drafter must know, for the skill being written, what the skill **reads from*
 - **Reads scene/chapter draft + character/world:** Scene Construction (main agent updates from output), POV Consistency Maintenance, Pacing, Layering History and Legend, Professional Writing Techniques (outputs only).  
 - **Reads character/relationship/consequence:** Consequence Cascade Implementation (writes 4.x).  
 - **Reads draft + world/magic:** Balancing Realism and Fantasy (audit only).  
-- **Reads tangle + last stable state:** Resolving Obstacles and Untangling Tangles (path forward only).  
-- **Refinement:** Self-Editing and Refinement (chapter draft only), POV Consistency Auditing (refined draft + voice profiles + 1.2).
+- ~~**Reads tangle + last stable state:** Resolving Obstacles and Untangling Tangles (path forward only)~~ *(Group 6 shelved)*  
+- ~~**Refinement:** Self-Editing and Refinement (chapter draft only), POV Consistency Auditing (refined draft + voice profiles + 1.2)~~ *(Group 7 shelved)*
 
 When drafting a skill, the drafter must **explicitly state** in that skill document which modules the main agent should provide as excerpts (reads) and which modules the main agent updates from the skill output (writes).
 
 ### 2.5 Subagent Architecture (Skill-to-Subagent Mapping)
 
-Skills are organized into **7 groups**, with each group assigned to a **session-persistent subagent**. When the brain (main agent) needs functionality from a skill group, it delegates to the corresponding subagent, which internally routes to the appropriate skill(s).
+Skills are organized into **5 active functional groups** (Groups 6 and 7 are shelved for the first draft), with each active group assigned to a **session-persistent subagent**. When the brain (main agent) needs functionality from a skill group, it delegates to the corresponding subagent, which internally routes to the appropriate skill(s).
 
 | Subagent Name | Skill Group | Skills Included | Responsibility |
 |---------------|-------------|-----------------|----------------|
@@ -87,8 +87,8 @@ Skills are organized into **7 groups**, with each group assigned to a **session-
 | **Plotting Subagent** | Group 3 – Plotting & Structure | Gardener Plotting System, Multiple POV Structure, Braided Narrative Technique, Conflict Layering, Plot Thread Tracking | Scene planning, POV management, structure, thread tracking |
 | **Writing Subagent** | Group 4 – Writing Execution | Scene Construction, POV Consistency Maintenance, Pacing, Layering History and Legend, Professional Writing Techniques | Draft prose generation, quality audits, refinement |
 | **Consequence Subagent** | Group 5 – Consequence & Realism | Consequence Cascade Implementation, Balancing Realism and Fantasy | Event impact analysis, realism/fantasy balance audits |
-| **ProblemSolver Subagent** | Group 6 – Problem-Solving | Resolving Obstacles and Untangling Tangles | Diagnostic support, resolution path finding |
-| **Refinement Subagent** | Group 7 – Refinement | Self-Editing and Refinement, POV Consistency Auditing | Final polish, comprehensive auditing |
+| ~~ProblemSolver Subagent~~ | ~~Group 6 – Problem-Solving~~ | ~~Resolving Obstacles and Untangling Tangles~~ | ~~Shelved for first draft~~ |
+| ~~Refinement Subagent~~ | ~~Group 7 – Refinement~~ | ~~Self-Editing and Refinement, POV Consistency Auditing~~ | ~~Shelved for first draft~~ |
 | **WorldBibleManager** | Infrastructure | N/A (all modules) | ALL World Bible I/O operations |
 
 **Key Principle:** Each subagent receives ALL skills in its group at initialization. The subagent internally determines which skill(s) to apply based on the task context. This provides:
@@ -164,8 +164,8 @@ Every skill document produced by the drafter must include the following. Adapt s
 
 ## 6. Drafting Order and Batching
 
-- **Order:** Draft skills in **group order** (1 → 7). Within each group, draft in **dependency order** (e.g. Character Conception → Character Creation → Character Voice Differentiation → Character Integration with Plot).  
-- **Batching:** Prefer **one skill per drafting request**. If the context window allows, you may request “draft all skills in Group N” and provide the full Group N subsection plus the Appendix rows for that group; the drafter should still output **one document per skill** in order.  
+- **Order:** Draft skills in **group order** (1 → 5). Groups 6 and 7 are shelved for the first draft. Within each group, draft in **dependency order** (e.g. Character Conception → Character Creation → Character Voice Differentiation → Character Integration with Plot).  
+- **Batching:** Prefer **one skill per drafting request**. If the context window allows, you may request “draft all skills in Group N” and provide the full Group N subsection plus the Appendix rows for that group; the drafter should still output **one document per skill** in order. **Note:** Do not request drafting for Groups 6 or 7 — these are shelved for the first draft.  
 - **Revisions:** When revising a skill, always provide **permanent context** again plus the current skill document and the spec subsection for that skill. Mention any specific boundary or interface conflict to fix.
 
 ---

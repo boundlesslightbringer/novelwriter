@@ -23,11 +23,13 @@ The main agent provides:
 
 1. **World Bible excerpt — Module 2.3 (Plot Thread Registry):** The complete thread registry — all active, dormant, resolved, and abandoned threads, with their status, origin chapter, characters involved, expected convergence windows, dependencies, and resolution summaries.
 
-2. **World Bible excerpt — Module 2.4 (Pending Payoffs & Foreshadowing):** All setup elements — Chekhov's guns, foreshadowing, consequence bombs, prophecies, in-world legends — with their planted chapter, expected payoff window, and resolution status.
+2. **World Bible excerpt — Module 2.4 (Pending Payoffs & Foreshadowing):** All setup elements — Chekhov's guns, foreshadowing, consequence bombs, prophecies, in-world legends — with their planted chapter, expected payoff window, and resolution status. **Consequence bombs with type "Consequence bomb" and priority tier "Essential" are registered here by the main agent (via Consequence Cascade Implementation output) so they are visible to this skill's convergence-phase sweep.**
 
 3. *(Optional)* **Current chapter number** — so the skill can assess which threads and payoffs are approaching, within, or past their expected windows.
 
 4. *(Optional)* **Endpoint compass** — the milestones from Defining Rough Endpoints. If the main agent is approaching a narrative milestone, thread status is assessed against whether the threads required by that milestone are sufficiently developed to support it.
+
+5. *(Convergence mode — required when in or approaching convergence phase)* **World Bible excerpt — Module 4.2 (Time-Delayed Consequence Bombs):** The full list of Armed consequence bombs. In convergence mode, this skill cross-references Module 4.2 against Module 2.4 to ensure all Essential Armed bombs are accounted for in the Pending Payoffs register, and flags any Essential bombs that are Armed but have no visible path to detonation before the ending.
 
 > **Note:** This skill receives excerpts from the main agent. It does not access the World Bible directly.
 
@@ -74,9 +76,25 @@ A detailed entry for every thread or pending payoff that is past its expected wi
 For each entry in Module 2.4:
 - Setup element and type (Chekhov's gun / Foreshadowing / Consequence bomb / Prophecy / In-world legend)
 - Planted chapter
-- Expected payoff window
+- Expected payoff window or detonation trigger (for consequence bombs: the condition-based trigger is used, not a chapter number)
 - Current resolution status: Pending / Paid off / Overdue
 - If overdue: same treatment as Thread Overdue Flags above.
+
+### 4a. Convergence-Phase Bomb Sweep *(active when in or approaching convergence phase)*
+
+When the main agent is in convergence mode — or approaching it — this skill performs a dedicated sweep of all Armed consequence bombs. **This section is only included in the report when Module 4.2 is provided as input.**
+
+For each Armed bomb in Module 4.2:
+
+**Cross-reference against Module 2.4.**
+Is this bomb registered in Module 2.4 as a Pending Payoff with type "Consequence bomb"? If its priority tier is Essential and it is *not* in Module 2.4, this is a registration gap — flag it for the main agent to correct immediately.
+
+**Assess by priority tier:**
+- **Essential bombs:** Must find a scene before the story ends. For each one, assess whether the detonation trigger (the story condition that fires this bomb) is present in the current story trajectory. Is there an active thread, an approaching scene, or a convergence opportunity that could serve as the detonation moment? Flag as *"On track — detonation path visible"* or *"AT RISK — no visible detonation path before ending."* AT RISK flags are high-priority.
+- **Enriching bombs:** Should fire if opportunity permits. Flag any with a natural detonation opportunity in the current convergence window as *"Opportunity available."* Others: *"No current opportunity — monitor."*
+- **Unclassified bombs:** Convergence is the moment to reclassify. For each, assess whether the story's current arc has made it clear whether the bomb is Essential or Enriching. Recommend a reclassification. If still genuinely unclear, retain as Unclassified with a note on what would resolve the question.
+
+Essential Armed bombs with no visible detonation path are escalated to the Priority Summary as high-priority items, above overdue threads.
 
 ### 5. Convergence Opportunities
 
@@ -112,7 +130,8 @@ For each thread marked `Abandoned` in the registry:
 - **Does not** write scenes or scene parameters.
 - **Does not** audit braiding or POV structure at the sequence level. Braided Narrative Technique handles that.
 - **Does not** decide which threads to develop or how. It reports status and flags urgency; the main agent decides.
-- **Does not** update the World Bible. The thread status report is returned to the main agent; any changes to the Thread Registry (new threads, resolved threads, revised windows) are written by the main agent.
+- **Does not** update the World Bible. The thread status report is returned to the main agent; any changes to the Thread Registry (new threads, resolved threads, revised windows), Pending Payoffs, or Consequence Ledger are written by the main agent.
+- **Does not** reclassify consequence bomb priority tiers directly. In convergence mode, it recommends reclassification of Unclassified bombs; the main agent applies the reclassification to Module 4.2 and, if the bomb becomes Essential, adds it to Module 2.4.
 
 ---
 
@@ -121,12 +140,15 @@ For each thread marked `Abandoned` in the registry:
 The main agent invokes Plot Thread Tracking:
 
 - At every chapter boundary, as part of the standard chapter-completion sequence, to check whether any threads or payoffs require attention before the next chapter begins.
-- When the main agent invokes the Convergence Checkpoint (from the system prompt's Block 4) — checking whether the major conflicts are beginning to move toward resolution and whether POV arcs are converging toward the rough endpoint.
+- When the main agent invokes the Convergence Checkpoint (from the system prompt's Block 4) — checking whether the major conflicts are beginning to move toward resolution and whether POV arcs are converging toward the rough endpoint. **In convergence mode, the main agent must also provide Module 4.2 so this skill can perform the convergence-phase bomb sweep (Section 4a).**
 - When the story feels structurally complex and the main agent has lost confidence in its thread load — a health check.
 - When approaching a narrative milestone from the endpoint compass — to confirm that the threads and payoffs required to make the milestone land are sufficiently developed.
 
 **Standard chapter-boundary sequence:**  
 `[Chapter complete] → Plot Thread Tracking → [Main agent updates Module 2.3 and 2.4 if needed] → Multiple POV Structure → Gardener Plotting System`
+
+**Convergence-mode invocation:**  
+`[Convergence Checkpoint triggered] → Plot Thread Tracking (with Module 4.2 provided) → [Main agent acts on bomb sweep flags before resuming forward writing]`
 
 ---
 
@@ -134,8 +156,8 @@ The main agent invokes Plot Thread Tracking:
 
 | Direction | Modules |
 |-----------|---------|
-| **Reads from** (as excerpts provided by main agent) | Module 2.3 (Plot Thread Registry), Module 2.4 (Pending Payoffs & Foreshadowing). Optionally: current chapter number, endpoint compass. |
-| **Main agent writes to** | Nothing — status report is returned to the main agent; any World Bible updates to Module 2.3 or 2.4 are made by the main agent based on the report. |
+| **Reads from** (as excerpts provided by main agent) | Module 2.3 (Plot Thread Registry), Module 2.4 (Pending Payoffs & Foreshadowing). Optionally: current chapter number, endpoint compass. **In convergence mode: Module 4.2 (Time-Delayed Consequence Bombs) — required for the convergence-phase bomb sweep.** |
+| **Main agent writes to** | Nothing — status report is returned to the main agent; any World Bible updates to Module 2.3, 2.4, or 4.2 are made by the main agent based on the report. |
 
 ---
 
@@ -191,12 +213,16 @@ Survey the active thread registry and pending payoffs. Look for:
 
 For each convergence opportunity, state: which threads are involved, what the convergence would mean narratively, whether it is planned or discovered, and how imminent it is.
 
+**Bomb sweep (convergence mode only — when Module 4.2 is provided):**
+After identifying convergence opportunities among threads and payoffs, perform the full Section 4a bomb sweep. For each Essential Armed bomb with no visible detonation path, check whether any identified convergence opportunity could serve as the detonation moment. If yes, flag the connection. If no, escalate to the Priority Summary as high-priority.
+
 ### Step 6 — Assess thread load health
 
 Count active threads. Consider:
 - How many chapters have been written? How many remain (estimated, based on the endpoint compass)?
 - Is the active thread count consistent with the story's current structural position? (Early chapters can carry more open threads; later chapters must begin closing them.)
 - Are there dependency chains at risk — threads that must resolve in a specific order, where the first link in the chain is overdue?
+- In convergence mode: after the bomb sweep, are there Essential Armed bombs that have no detonation path? These are equivalent to overdue threads — they represent narrative commitments that the story has made and must honour before it ends. Include them in the thread load count when assessing whether the story can close cleanly.
 
 ### Step 7 — Assemble and return the report
 

@@ -77,7 +77,7 @@ The main agent invokes Multiple POV Structure:
 **Standard chapter-boundary invocation sequence:**  
 `[Previous chapter complete] → Multiple POV Structure → Gardener Plotting System (for the assigned POV) → Scene Construction`
 
-> **Sibling skill:** When the human user has already specified which POV character narrates the next chapter, invoke **Single POV Structure** instead of this skill. Single POV Structure accepts the user's assignment as given, validates it, and produces the same scheduling output. Multiple POV Structure and Single POV Structure are mutually exclusive for any given chapter boundary.
+> **Sibling skill:** When the human user has already specified which POV character narrates the next chapter, invoke [single-pov-structure](../single-pov-structure/SKILL.md) instead of this skill. Single POV Structure accepts the user's assignment as given, validates it, and produces the same scheduling output. Multiple POV Structure and Single POV Structure are mutually exclusive for any given chapter boundary.
 
 ---
 

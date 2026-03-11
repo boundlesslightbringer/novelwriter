@@ -10,6 +10,8 @@ description: Calibrates narrative tension by deriving the appropriate prose rhyt
 **Skill name:** `pacing`
 **Purpose:** Translate the POV character's interior life into concrete prose-rhythm guidance — but in a way that keeps each character's voice distinct even across similar dramatic situations. Two characters in crisis are not in the same register simply because they are both in crisis. A character who intellectualises under pressure will be in Deliberate when another character in the same scene would be Urgent. A character whose baseline is emotional suppression will be Brittle where a less defended character would be Dissociative. The register emerges from the intersection of who this character is and what is happening to them — not from the situation alone. This skill performs that derivation and outputs the parameters Scene Construction needs.
 
+> **Sibling skill:** [scene-construction](../scene-construction/SKILL.md) consumes this skill's output as an optional input parameter. When Pacing is invoked after a significant psychological state shift, its guidance governs how Scene Construction renders the prose.
+
 ---
 
 ## Core

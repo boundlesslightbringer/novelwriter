@@ -9,6 +9,8 @@ description: Ensures POV storylines run parallel, intersect meaningfully at conv
 
 **Purpose:** Analyse the multi-POV narrative as a braided structure — examining whether the POV storylines are running with productive parallel tension, intersecting at genuinely meaningful convergence points, and carrying no redundant scenes where showing the same event from a second POV adds nothing the reader does not already have. Output is analysis and recommendations; the main agent decides what to act on.
 
+> **Sibling skills:** This skill works alongside [multiple-pov-structure](../multiple-pov-structure/SKILL.md) (determines which POV narrates next) and [plot-thread-tracking](../plot-thread-tracking/SKILL.md) (tracks thread convergence windows). Use all three together for comprehensive multi-POV orchestration.
+
 ---
 
 ## Core

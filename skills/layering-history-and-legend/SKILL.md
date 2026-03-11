@@ -10,6 +10,8 @@ description: Weaves backstory, in-world songs, legends, ruins, artifacts, and co
 **Skill name:** `layering-history-and-legend`
 **Purpose:** The past is not backstory — it is a living pressure on every scene. This skill integrates that pressure into prose that has already been written and cleared for POV consistency: the ruins that are visible from this window, the song one of these characters half-remembers, the contested legend that the two cultures in the room interpret differently, the artifact on the table whose significance the POV character partially understands. None of this is delivered as information. It enters the scene through the filter of what this specific character knows, misremembers, was taught, and believes — and it serves the scene's existing conflict, not a worldbuilding agenda.
 
+> **Sibling skills:** This skill operates on output from [scene-construction](../scene-construction/SKILL.md) after it has passed [pov-consistency-maintenance](../pov-consistency-maintenance/SKILL.md). History integration happens only after the scene's core prose is POV-consistent.
+
 ---
 
 ## Core
