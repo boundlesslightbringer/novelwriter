@@ -76,3 +76,50 @@ result:
   output: [character concept|full record|voice profile|integration data]
   updated_character_state: [summary]
 ```
+
+### Bootstrap Output Contract
+
+When the orchestrator sends `context.stage: "opening_cast"` during
+`story_bootstrap_workflow`, return a structured JSON payload matching this
+schema:
+
+```json
+{
+  "result": {
+    "skill_used": "character_subagent.opening_cast",
+    "output": {
+      "character_directory": [
+        {
+          "logical_id": "char_<slug>",
+          "name": "Character name",
+          "role": "Narrative role",
+          "core_contradiction": "Internal contradiction"
+        }
+      ],
+      "knowledge_matrix": [
+        {
+          "character_id": "char_<slug>",
+          "knows": ["fact_a", "fact_b"],
+          "unknown_to_them": ["fact_c"]
+        }
+      ],
+      "relationship_records": [
+        {
+          "from_character_id": "char_<slug>",
+          "to_character_id": "char_<slug>",
+          "relationship_type": "ally|enemy|family|mentor|rival",
+          "tension_note": "Current pressure in this bond"
+        }
+      ],
+      "initial_consequence_entries": [
+        {
+          "event_id": "bootstrap_event_<slug>",
+          "immediate_effect": "Immediate fallout",
+          "potential_short_term_bomb": "Near-term unresolved pressure"
+        }
+      ]
+    },
+    "next_recommended": "worldbible_manager_write"
+  }
+}
+```

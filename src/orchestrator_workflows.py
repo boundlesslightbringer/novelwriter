@@ -54,14 +54,18 @@ def build_story_bootstrap_workflow(options: dict[str, Any]) -> list[dict[str, An
     """Build the bootstrap workflow for a new project.
 
     Args:
-        options: Bootstrap options. Expected keys include `project_name` and an
-            optional `user_constraints` list.
+        options: Bootstrap options. Expected keys include `project_name`,
+            `genre`, and `theme`, plus optional `subgenres` and
+            `user_constraints` lists.
 
     Returns:
         An ordered list of delegation envelopes covering initialization,
         planning, character creation, and initial persistence.
     """
     project_name = options["project_name"]
+    genre = options["genre"]
+    theme = options["theme"]
+    subgenres = options.get("subgenres", [])
     user_constraints = options.get("user_constraints", [])
 
     return [
@@ -75,7 +79,12 @@ def build_story_bootstrap_workflow(options: dict[str, Any]) -> list[dict[str, An
                         {
                             "module": "metadata",
                             "action": "create",
-                            "data": {"project_name": project_name},
+                            "data": {
+                                "project_name": project_name,
+                                "genre": genre,
+                                "theme": theme,
+                                "subgenres": subgenres,
+                            },
                             "chapter_context": 0,
                         }
                     ],
@@ -90,6 +99,9 @@ def build_story_bootstrap_workflow(options: dict[str, Any]) -> list[dict[str, An
                     "stage": "seed_to_world",
                     "inputs": {
                         "project_name": project_name,
+                        "genre": genre,
+                        "theme": theme,
+                        "subgenres": subgenres,
                         "constraints": user_constraints,
                     },
                     "knowledge_graph_context": {
@@ -120,6 +132,10 @@ def build_story_bootstrap_workflow(options: dict[str, Any]) -> list[dict[str, An
                 "context": {
                     "stage": "opening_cast",
                     "inputs": {
+                        "required_planning_outputs": [
+                            "definitive_seed",
+                            "candidate_seeds_log",
+                        ],
                         "required_world_modules": ["3.1_political_power_map"],
                         "expected_outputs": ["1.1", "1.2", "1.3", "4.1_initial"],
                     },
@@ -175,6 +191,7 @@ def build_scene_cycle_workflow(options: dict[str, Any]) -> list[dict[str, Any]]:
                         "chapter_context": chapter_number,
                         "pov_character": pov_character,
                     },
+                    "expected_output": "scene_cycle_context_bundle",
                 },
             }
         ),
@@ -187,6 +204,8 @@ def build_scene_cycle_workflow(options: dict[str, Any]) -> list[dict[str, Any]]:
                     "chapter_number": chapter_number,
                     "pov_preference": pov_character,
                     "user_instructions": user_instructions,
+                    "required_world_context": "scene_cycle_context_bundle",
+                    "expected_outputs": ["pov_assignment", "scene_parameters", "thread_status"],
                     "knowledge_graph_context": {
                         "node_types": ["Character", "Chapter", "PlotThread", "Payoff", "Event"],
                         "edge_types": ["KNOWS", "RELATIONSHIP", "INVOLVES", "CAUSES", "PAYS_OFF_IN"],
@@ -202,6 +221,8 @@ def build_scene_cycle_workflow(options: dict[str, Any]) -> list[dict[str, Any]]:
                     "operation": "draft_scene",
                     "chapter_number": chapter_number,
                     "pov_character": pov_character,
+                    "required_plotting_outputs": ["pov_assignment", "scene_parameters"],
+                    "expected_outputs": ["scene_draft", "quality_report"],
                     "expected_internal_chain": [
                         "pacing_if_needed",
                         "scene_construction",
@@ -222,6 +243,8 @@ def build_scene_cycle_workflow(options: dict[str, Any]) -> list[dict[str, Any]]:
                     "operation": "analyze_consequences",
                     "chapter_number": chapter_number,
                     "trigger_condition": "major_event_just_occurred",
+                    "required_writing_outputs": ["scene_draft", "quality_report"],
+                    "expected_outputs": ["consequence_analysis", "recommended_updates"],
                     "knowledge_graph_context": {
                         "node_types": ["Event", "Character", "Payoff", "CascadeChain"],
                         "edge_types": ["CAUSES", "RELATIONSHIP", "INVOLVES"],

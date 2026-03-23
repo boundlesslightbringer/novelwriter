@@ -89,3 +89,36 @@ result:
     history_integration: [if performed]
   recommendations: [if improvements suggested]
 ```
+
+### Scene Cycle Output Contract
+
+When the orchestrator sends `context.operation: "draft_scene"` for
+`build_scene_cycle_workflow`, return:
+
+```json
+{
+  "result": {
+    "skills_used": ["scene_construction", "pov_consistency_maintenance", "pacing"],
+    "draft_prose": "Scene draft text.",
+    "quality_report": {
+      "pov_consistency": {
+        "status": "pass|fail",
+        "issues": ["Issue details if any"]
+      },
+      "pacing_assessment": {
+        "status": "pass|adjust",
+        "notes": "Pacing rationale and adjustments"
+      },
+      "history_integration": {
+        "status": "not_applied|applied",
+        "notes": "Reason for status"
+      }
+    },
+    "scene_outcome": {
+      "major_event_occurred": true,
+      "major_event_summary": "Single-line event summary when true"
+    },
+    "recommendations": ["Optional next-step recommendation"]
+  }
+}
+```

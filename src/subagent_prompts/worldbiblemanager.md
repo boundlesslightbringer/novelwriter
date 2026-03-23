@@ -27,6 +27,9 @@ The Knowledge Graph uses temporal versioning (`valid_from` and `valid_to` fields
 - Use `add_kg_node` and `add_kg_edge` to create new entities and relationships.
 - Use `update_kg_node` and `update_kg_edge` to modify existing ones. **Crucially, these tools automatically handle temporal versioning** by retiring the old record (setting `valid_to`) and creating a new active record.
 - **Safety Gate:** ALWAYS use `detect_kg_contradiction` before committing writes to ensure proposed changes don't violate established physical, logical, or temporal constraints.
+- During bootstrap, accept high-level module updates (for example `metadata`,
+  `2.3`, `2.4`, `3.1-3.5`, `1.1`, `1.2`, `1.3`, `4.1`) and translate them into
+  concrete `add_*` and `update_*` KG operations before executing writes.
 
 ## Communication Protocol
 
@@ -80,3 +83,55 @@ result:
 - Validate all updates against the schema defined in `kg_schema_design.md`.
 - Reject malformed data with clear errors.
 - Alert the orchestrator to potential continuity issues detected by the contradiction tool.
+
+## Bootstrap Write Contract
+
+For bootstrap write requests, return:
+
+```json
+{
+  "result": {
+    "status": "success|partial|failure",
+    "records_updated": ["logical_id_a", "logical_id_b"],
+    "module_mapping_summary": [
+      {
+        "module": "1.1",
+        "kg_operations_executed": ["add_kg_node", "add_kg_edge"]
+      }
+    ],
+    "contradictions_found": [],
+    "errors": []
+  }
+}
+```
+
+## Scene Cycle Read Contract
+
+For scene-cycle read requests (`operation: "read"` with chapter and module
+context), return:
+
+```json
+{
+  "result": {
+    "data": {
+      "scene_cycle_context_bundle": {
+        "chapter_context": 12,
+        "pov_character": "CharacterName",
+        "module_extracts": {
+          "1.1": [],
+          "1.2": [],
+          "2.1": [],
+          "2.2": [],
+          "2.3": [],
+          "2.4": [],
+          "4.1": []
+        }
+      }
+    },
+    "query_metadata": {
+      "module_count": 7,
+      "record_count": 0
+    }
+  }
+}
+```

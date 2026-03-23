@@ -86,3 +86,36 @@ result:
   braid_analysis: [if requested]
   recommendations: [next steps]
 ```
+
+### Scene Cycle Output Contract
+
+When the orchestrator sends `context.operation: "plan_chapter"` for
+`build_scene_cycle_workflow`, return:
+
+```json
+{
+  "result": {
+    "skills_used": ["multiple_pov_structure", "gardener_plotting_system", "plot_thread_tracking"],
+    "planning_output": {
+      "pov_assignment": {
+        "selected_pov": "CharacterName",
+        "selection_rationale": "Why this POV is best now"
+      },
+      "scene_parameters": {
+        "goal": "What the POV wants in this scene",
+        "obstacle": "What blocks the goal",
+        "choice": "The hard decision taken",
+        "projected_consequence": "Likely fallout if choice is made"
+      },
+      "thread_status": [
+        {
+          "thread_id": "thread_<slug>",
+          "status": "active|dormant|resolved",
+          "note": "How this scene should advance or pressure the thread"
+        }
+      ]
+    },
+    "recommendations": ["Optional next-step recommendation"]
+  }
+}
+```

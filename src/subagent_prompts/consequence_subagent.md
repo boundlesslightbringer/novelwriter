@@ -69,3 +69,30 @@ result:
     flags: [list of issues with recommendations]
   recommended_updates: [for World Bible]
 ```
+
+### Scene Cycle Output Contract
+
+When the orchestrator sends `context.operation: "analyze_consequences"` for
+`build_scene_cycle_workflow`, return:
+
+```json
+{
+  "result": {
+    "skills_used": ["consequence_cascade_implementation"],
+    "consequence_analysis": {
+      "trigger_evaluated": "major_event_just_occurred",
+      "analysis_performed": true,
+      "immediate_effects": ["Immediate consequence"],
+      "short_term_bombs": ["Short-term pressure point"],
+      "long_term_implications": ["Long-term ripple"]
+    },
+    "recommended_updates": [
+      {
+        "module": "4.1|4.2|4.3|2.4",
+        "action": "update",
+        "data": "Payload summary for worldbible_manager"
+      }
+    ]
+  }
+}
+```
