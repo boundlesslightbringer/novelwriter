@@ -1,10 +1,48 @@
-import os
-from langchain.tools import tool
+from pathlib import Path
+from typing import Any
+
 import yaml
+from langchain.tools import tool
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SKILLS_DIR = PROJECT_ROOT / "skills"
+
+
+def _extract_frontmatter(content: str) -> dict[str, Any]:
+    """Extract YAML frontmatter from a markdown string.
+
+    Args:
+        content: Full markdown document content.
+
+    Returns:
+        Parsed frontmatter as a dictionary, or an empty dictionary when no
+        valid frontmatter is present.
+    """
+    if content.startswith("---"):
+        end_idx = content.find("---", 3)
+        if end_idx != -1:
+            frontmatter = content[3:end_idx].strip()
+            try:
+                return yaml.safe_load(frontmatter) or {}
+            except yaml.YAMLError:
+                return {}
+    return {}
+
+
+def _resolve_skill_path(skill_name: str) -> Path:
+    """Resolve the directory path for a named skill.
+
+    Args:
+        skill_name: Skill directory name under `skills/`.
+
+    Returns:
+        Absolute path to the requested skill directory.
+    """
+    return SKILLS_DIR / skill_name
 
 
 @tool
-def progressive_skill_loader(skill_name: str, load_type: str, linked_path: str = None) -> dict | str:
+def progressive_skill_loader(skill_name: str, load_type: str, linked_path: str | None = None) -> dict[str, Any] | str:
     """
     Tool for progressively loading a skill from the skills directory.
 
@@ -27,35 +65,21 @@ def progressive_skill_loader(skill_name: str, load_type: str, linked_path: str =
         ValueError: If invalid load_type or missing linked_path for 'linked'.
         FileNotFoundError: If the file does not exist.
     """
-    base_dir = os.path.join('skills', skill_name)
-    main_file = os.path.join(base_dir, 'SKILL.md')
+    base_dir = _resolve_skill_path(skill_name)
+    main_file = base_dir / "SKILL.md"
 
-    def extract_frontmatter(content: str) -> dict:
-        if content.startswith('---'):
-            end_idx = content.find('---', 3)
-            if end_idx != -1:
-                fm_str = content[3:end_idx].strip()
-                try:
-                    return yaml.safe_load(fm_str)
-                except yaml.YAMLError:
-                    return {}
-        return {}
+    if load_type == "frontmatter":
+        return _extract_frontmatter(main_file.read_text(encoding="utf-8"))
 
-    if load_type == 'frontmatter':
-        with open(main_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return extract_frontmatter(content)
+    if load_type == "full":
+        return main_file.read_text(encoding="utf-8")
 
-    elif load_type == 'full':
-        with open(main_file, 'r', encoding='utf-8') as f:
-            return f.read()
-
-    elif load_type == 'linked':
+    if load_type == "linked":
         if not linked_path:
             raise ValueError("linked_path is required for 'linked' load_type")
-        linked_file = os.path.join(base_dir, linked_path)
-        with open(linked_file, 'r', encoding='utf-8') as f:
-            return f.read()
+        linked_file = (base_dir / linked_path).resolve()
+        if base_dir.resolve() not in linked_file.parents and linked_file != base_dir.resolve():
+            raise ValueError("linked_path must stay inside the skill directory")
+        return linked_file.read_text(encoding="utf-8")
 
-    else:
-        raise ValueError("load_type must be one of 'frontmatter', 'full', or 'linked'")
+    raise ValueError("load_type must be one of 'frontmatter', 'full', or 'linked'")
