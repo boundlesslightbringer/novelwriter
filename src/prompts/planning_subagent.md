@@ -70,38 +70,6 @@ context:
 ```
 
 **To Brain:**
-When returning the result of `finding-a-seed`, you MUST return a structured JSON output matching this exact schema:
-```json
-{
-  "result": {
-    "skill_used": "finding-a-seed",
-    "output": {
-      "definitive_seed": {
-        "seed": "1-3 sentences describing the seed.",
-        "generation_method": "Which of the 4 methods produced it.",
-        "validation_record": "Confirmation of passing the 4 criteria.",
-        "genre_and_theme_fit": "Brief statement of fit.",
-        "questions": ["Question 1", "Question 2", "Question 3", "Question 4", "Question 5"]
-      },
-      "candidate_seeds_log": [
-        {
-          "seed_statement": "The candidate seed.",
-          "method": "Generation method.",
-          "strengths": "What worked.",
-          "failure_point": "Specific reason it was not selected.",
-          "status": "Rejected | Merged | Held as alternative"
-        }
-      ]
-    },
-    "next_recommended": "defining-rough-endpoints"
-  }
-}
-```
+When returning the result of `finding-a-seed`, place the structured JSON output in the `artifacts` field of your response.
 
-For other skills, return:
-```yaml
-result:
-  skill_used: "[name]"
-  output: [structured data per skill spec]
-  next_recommended: [if applicable]
-```
+For other skills, place the structured data per skill spec in the `artifacts` field.

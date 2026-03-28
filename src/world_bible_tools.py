@@ -8,12 +8,22 @@ It uses a two-collection design (`nodes` and `edges`) with temporal versioning
 
 import os
 import uuid
-from typing import Any
+from typing import Any, List, Optional
 
 from langchain.tools import tool
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
+
+from src.kg_models import (
+    AddEdgeArgs,
+    AddNodeArgs,
+    DetectContradictionArgs,
+    QueryEdgesArgs,
+    QueryNodesArgs,
+    UpdateEdgeArgs,
+    UpdateNodeArgs,
+)
 
 
 def _get_db() -> Database:
@@ -23,7 +33,8 @@ def _get_db() -> Database:
         The MongoDB database for the novelwriter project.
     """
     client: MongoClient = MongoClient(os.environ.get("MONGODB_URI", "mongodb://localhost:27017/"))
-    return client.get_database(os.environ.get("MONGODB_DB_NAME", "novelwriter_kg"))
+    db_name = os.environ.get("MONGODB_DB_NAME", "novelwriter_kg")
+    return client.get_database(db_name)
 
 
 def _get_nodes() -> Collection:
@@ -46,6 +57,48 @@ def init_kg_db(db_name: str) -> str:
     client: MongoClient = MongoClient(os.environ.get("MONGODB_URI", "mongodb://localhost:27017/"))
     db = client.get_database(db_name)
 
+    nodes_schema = {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["logical_id", "type", "valid_from", "properties"],
+            "properties": {
+                "_id": {"bsonType": "string"},
+                "logical_id": {"bsonType": "string"},
+                "type": {"bsonType": "string"},
+                "valid_from": {"bsonType": "int"},
+                "valid_to": {"bsonType": ["int", "null"]},
+                "properties": {"bsonType": "object"},
+            },
+        }
+    }
+
+    edges_schema = {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["logical_id", "type", "from", "to", "valid_from", "properties"],
+            "properties": {
+                "_id": {"bsonType": "string"},
+                "logical_id": {"bsonType": "string"},
+                "type": {"bsonType": "string"},
+                "from": {"bsonType": "string"},
+                "to": {"bsonType": "string"},
+                "valid_from": {"bsonType": "int"},
+                "valid_to": {"bsonType": ["int", "null"]},
+                "properties": {"bsonType": "object"},
+            },
+        }
+    }
+
+    if "nodes" not in db.list_collection_names():
+        db.create_collection("nodes", validator=nodes_schema)
+    else:
+        db.command("collMod", "nodes", validator=nodes_schema)
+
+    if "edges" not in db.list_collection_names():
+        db.create_collection("edges", validator=edges_schema)
+    else:
+        db.command("collMod", "edges", validator=edges_schema)
+
     nodes = db.get_collection("nodes")
     edges = db.get_collection("edges")
 
@@ -59,10 +112,10 @@ def init_kg_db(db_name: str) -> str:
     edges.create_index([("type", 1), ("valid_to", 1)])
     edges.create_index([("logical_id", 1), ("valid_to", 1)])
 
-    return f"Knowledge Graph database '{db_name}' initialized with required indexes."
+    return f"Knowledge Graph database '{db_name}' initialized with required schemas and indexes."
 
 
-@tool
+@tool(args_schema=QueryNodesArgs)
 def query_kg_nodes(query: dict[str, Any], as_of_chapter: int | None = None) -> list[dict[str, Any]]:
     """Query nodes in the Knowledge Graph.
 
@@ -86,7 +139,7 @@ def query_kg_nodes(query: dict[str, Any], as_of_chapter: int | None = None) -> l
     return list(nodes.find(temporal_query, {"_id": 0}))
 
 
-@tool
+@tool(args_schema=QueryEdgesArgs)
 def query_kg_edges(query: dict[str, Any], as_of_chapter: int | None = None) -> list[dict[str, Any]]:
     """Query edges in the Knowledge Graph.
 
@@ -110,7 +163,7 @@ def query_kg_edges(query: dict[str, Any], as_of_chapter: int | None = None) -> l
     return list(edges.find(temporal_query, {"_id": 0}))
 
 
-@tool
+@tool(args_schema=AddNodeArgs)
 def add_kg_node(logical_id: str, node_type: str, properties: dict[str, Any], chapter: int) -> str:
     """Add a new node to the Knowledge Graph.
 
@@ -136,7 +189,7 @@ def add_kg_node(logical_id: str, node_type: str, properties: dict[str, Any], cha
     return f"Added node '{logical_id}' of type '{node_type}' at chapter {chapter}."
 
 
-@tool
+@tool(args_schema=UpdateNodeArgs)
 def update_kg_node(logical_id: str, updated_properties: dict[str, Any], chapter: int) -> str:
     """Update an existing node using temporal versioning.
 
@@ -176,7 +229,7 @@ def update_kg_node(logical_id: str, updated_properties: dict[str, Any], chapter:
     return f"Updated node '{logical_id}' at chapter {chapter}."
 
 
-@tool
+@tool(args_schema=AddEdgeArgs)
 def add_kg_edge(
     logical_id: str,
     edge_type: str,
@@ -213,7 +266,7 @@ def add_kg_edge(
     return f"Added edge '{logical_id}' of type '{edge_type}' from '{from_node}' to '{to_node}' at chapter {chapter}."
 
 
-@tool
+@tool(args_schema=UpdateEdgeArgs)
 def update_kg_edge(logical_id: str, updated_properties: dict[str, Any], chapter: int) -> str:
     """Update an existing edge using temporal versioning.
 
@@ -255,7 +308,7 @@ def update_kg_edge(logical_id: str, updated_properties: dict[str, Any], chapter:
     return f"Updated edge '{logical_id}' at chapter {chapter}."
 
 
-@tool
+@tool(args_schema=DetectContradictionArgs)
 def detect_kg_contradiction(proposed_updates: list[dict[str, Any]], chapter: int) -> dict[str, Any]:
     """Check if proposed node/edge updates conflict with established graph constraints.
 
