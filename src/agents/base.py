@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from langchain_openrouter import ChatOpenRouter
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain.agents import create_agent
@@ -57,7 +57,7 @@ class BaseWorkerSubagent:
         if self.llm_config.top_k is not None:
             model_kwargs["top_k"] = self.llm_config.top_k
 
-        llm = ChatOpenRouter(
+        llm = ChatGoogleGenerativeAI(
             model=model_name,
             **model_kwargs)
         
