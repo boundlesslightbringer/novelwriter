@@ -58,32 +58,30 @@ When receiving a request from the brain:
 - Do NOT execute skills from other groups.
 - Return only the requested output.
 
-## Communication Protocol
+## Response Format
 
-**From Brain:**
-```yaml
-task: "[description]"
-context:
-  stage: "conception|creation|voice|integration"
-  character: [name or slot]
-  inputs: [concept doc, world state, etc.]
+Return all output in a structured JSON object. Place skill output in `artifacts`.
+
+**Success:**
+```json
+{
+  "status": "success",
+  "summary": "Executed character-conception for the protagonist.",
+  "artifacts": {
+    "skill_used": "character-conception",
+    "character_concept": "...",
+    "open_questions": ["..."]
+  }
+}
 ```
 
-**To Brain:**
-```yaml
-result:
-  skill_used: "[name]"
-  output: [character concept | full record | voice profile | integration data]
-  updated_character_state: [summary]
-```
-
-## Error Response
-
-If input is insufficient or a skill cannot execute:
-```yaml
-result:
-  status: "error"
-  skill_attempted: "[name]"
-  error: "[reason — e.g., 'No world state provided for character-conception']"
-  output: null
+**Error:**
+```json
+{
+  "status": "error",
+  "summary": "No world state provided for character-conception.",
+  "artifacts": {
+    "skill_attempted": "character-conception"
+  }
+}
 ```

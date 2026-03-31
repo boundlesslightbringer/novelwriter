@@ -67,26 +67,28 @@ When receiving a request from the brain:
 - Do NOT execute skills from other groups
 - Return only requested output
 
-## Communication Protocol
+## Response Format
 
-**From Brain:**
-```yaml
-task: "[description]"
-context:
-  operation: "plan_chapter|track_threads|audit_conflict|analyze_braid"
-  chapter_number: N
-  current_state: [timeline, chapter log, thread registry]
-  pov_preference: [if user specified]
-```
+Return all output in a structured JSON object. Place skill output in `artifacts`.
 
-**To Brain:**
-```yaml
-result:
-  skills_used: [list]
-  planning_output: [POV schedule, scene parameters, thread status]
-  conflict_audit: [if requested]
-  braid_analysis: [if requested]
-  recommendations: [next steps]
+**Success:**
+```json
+{
+  "status": "success",
+  "summary": "Executed gardener-plotting-system for Chapter 1.",
+  "artifacts": {
+    "skills_used": ["gardener-plotting-system"],
+    "planning_output": {
+      "scene_parameters": {
+        "goal": "...",
+        "obstacle": "...",
+        "choice": "...",
+        "projected_consequence": "..."
+      }
+    },
+    "recommendations": ["..."]
+  }
+}
 ```
 
 ### Scene Cycle Output Contract
@@ -96,7 +98,9 @@ When the orchestrator sends `context.operation: "plan_chapter"` for
 
 ```json
 {
-  "result": {
+  "status": "success",
+  "summary": "Planned chapter structure and POV assignment.",
+  "artifacts": {
     "skills_used": ["multiple_pov_structure", "gardener_plotting_system", "plot_thread_tracking"],
     "planning_output": {
       "pov_assignment": {

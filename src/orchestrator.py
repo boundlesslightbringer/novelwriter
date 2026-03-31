@@ -196,6 +196,9 @@ class GRRMOrchestrator:
             "  Exception: contradiction resolution writes go through `resolution_subagent` in IMPLEMENT mode.\n"
             "- When `worldbible_manager` returns status='blocked', follow the Contradiction Resolution Protocol"
             " in your system prompt: ANALYSE → user discussion → IMPLEMENT → RE_ISSUE.\n"
+            "- Artifact Persistence Rule: When a creative worker returns with status='success' and non-empty artifacts, "
+            "you MUST delegate a write to worldbible_manager BEFORE responding to the user or delegating to another worker. "
+            "Do NOT delegate a read to verify content that was just returned — write it first.\n"
             "- Delegate to only one worker at a time.\n"
             "- After a worker returns, either delegate again or respond to the user.\n\n"
             f"Current contradiction state:\n"
@@ -362,6 +365,31 @@ class GRRMOrchestrator:
         if resolution_update is not None:
             # Fall through to LLM routing so the brain can present the outcome to the user.
             state = {**state, **resolution_update}
+
+        # Failure guard: stop if the same worker fails twice on the same task.
+        latest = state.get("latest_worker_result")
+        if latest:
+            result = latest.get("result", {})
+            if result.get("status") == "failed" and not result.get("artifacts"):
+                worker_history = state.get("worker_history", [])
+                failures = 0
+                for record in reversed(worker_history):
+                    if record.get("worker") == latest.get("worker") and record.get("task") == latest.get("task"):
+                        rec_result = record.get("result", {})
+                        if rec_result.get("status") == "failed" and not rec_result.get("artifacts"):
+                            failures += 1
+                        else:
+                            break
+                    else:
+                        break
+                
+                if failures >= 2:
+                    return {
+                        "final_response": f"The worker `{latest.get('worker')}` failed twice on the same task. Stopping to prevent a loop.\n\nError: {result.get('summary')}",
+                        "active_worker": None,
+                        "worker_request": None,
+                        "iteration_count": iteration_count + 1,
+                    }
 
         try:
             decision = self.brain_router.invoke(self._build_brain_messages(state), stream=False)

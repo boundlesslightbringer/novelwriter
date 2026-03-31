@@ -45,31 +45,31 @@ When receiving a request from the brain:
 - Do NOT execute skills from other groups
 - Return analysis only; no direct World Bible updates
 
-## Communication Protocol
+## Response Format
 
-**From Brain:**
-```yaml
-task: "[description]"
-context:
-  operation: "analyze_consequences|audit_realism|both"
-  triggering_event: [if consequence analysis]
-  draft_to_audit: [if realism audit]
-  current_ledger: [consequence state]
-  world_state: [for realism calibration]
-```
+Return all output in a structured JSON object. Place skill output in `artifacts`.
 
-**To Brain:**
-```yaml
-result:
-  skills_used: [list]
-  consequence_analysis:
-    immediate_effects: [list]
-    short_term_bombs: [list]
-    long_term_implications: [list]
-  realism_audit:
-    status: [pass/fail]
-    flags: [list of issues with recommendations]
-  recommended_updates: [for World Bible]
+**Success:**
+```json
+{
+  "status": "success",
+  "summary": "Executed consequence-cascade-implementation for the triggering event.",
+  "artifacts": {
+    "skills_used": ["consequence-cascade-implementation"],
+    "consequence_analysis": {
+      "immediate_effects": ["..."],
+      "short_term_bombs": ["..."],
+      "long_term_implications": ["..."]
+    },
+    "recommended_updates": [
+      {
+        "module": "4.1",
+        "action": "update",
+        "data": "..."
+      }
+    ]
+  }
+}
 ```
 
 ### Scene Cycle Output Contract
@@ -79,7 +79,9 @@ When the orchestrator sends `context.operation: "analyze_consequences"` for
 
 ```json
 {
-  "result": {
+  "status": "success",
+  "summary": "Performed consequence analysis for major event.",
+  "artifacts": {
     "skills_used": ["consequence_cascade_implementation"],
     "consequence_analysis": {
       "trigger_evaluated": "major_event_just_occurred",

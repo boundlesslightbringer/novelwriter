@@ -6,7 +6,7 @@ from langchain_openrouter import ChatOpenRouter
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain.agents import create_agent
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.config import NovelWriterConfig
 
@@ -15,9 +15,16 @@ class WorkerResponse(BaseModel):
     """Structured response returned by every worker node."""
     status: str = Field(description="Overall worker execution status (completed, need_input, failed).")
     summary: str = Field(description="Concise summary of what the worker did or found.")
-    artifacts: Dict[str, Any] = Field(default_factory=dict, description="Domain-specific structured outputs produced by the worker.")
+    artifacts: Dict[str, Any] = Field(..., description="Domain-specific structured outputs produced by the worker. MUST NOT BE EMPTY.")
     follow_up_questions: List[str] = Field(default_factory=list, description="Questions that the orchestrator may need to relay to the user.")
     recommended_next_worker: str | None = Field(default=None, description="Optional recommendation for which worker should act next.")
+
+    @field_validator('artifacts')
+    @classmethod
+    def validate_artifacts_not_empty(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        if not v:
+            raise ValueError("The 'artifacts' dictionary cannot be empty. You must include all generated content here.")
+        return v
 
 
 class BaseWorkerSubagent:
@@ -79,7 +86,10 @@ class BaseWorkerSubagent:
             "- Execute only the task provided by the orchestrator brain.\n"
             "- Do not answer as the top-level assistant.\n"
             f"- {tool_instruction}\n"
-            "- Place domain-specific structured outputs in the `artifacts` field.\n"
+            "- The `summary` field must be ONE sentence describing what you did. \n"
+            "- ALL generated content — seed text, character data, scene drafts, analysis, structured records — MUST be serialised as a JSON-serialisable dict in `artifacts`. \n"
+            "- CRITICAL: The `artifacts` dictionary MUST NOT BE EMPTY. If you do not have any artifacts to return, you must still return a non-empty dictionary, for example `{\"result\": \"success\"}`.\n"
+            "- If your content is not in `artifacts`, it is lost. The orchestrator cannot read `summary` for data.\n"
             "- Keep `summary` concise and factual.\n"
         )
 
@@ -126,14 +136,21 @@ class BaseWorkerSubagent:
         if isinstance(structured_response, WorkerResponse):
             return structured_response
         if isinstance(structured_response, dict):
-            return WorkerResponse.model_validate(structured_response)
+            try:
+                return WorkerResponse.model_validate(structured_response)
+            except Exception as e:
+                fallback_text = self._extract_last_message_text(result.get("messages", []))
+                return WorkerResponse(
+                    status="failed",
+                    summary=f"Worker failed to produce valid structured output: {e}",
+                    artifacts={"error": "validation_failed", "raw_output": fallback_text},
+                )
 
         fallback_text = self._extract_last_message_text(result.get("messages", []))
-        artifacts = {"raw_output": fallback_text} if fallback_text else {}
         return WorkerResponse(
             status="failed",
             summary=fallback_text or "Worker completed without structured output.",
-            artifacts=artifacts,
+            artifacts={"error": "missing_structured_output", "raw_output": fallback_text},
         )
 
     def invoke(self, state: Dict[str, Any], config: RunnableConfig | None = None) -> Dict[str, Any]:
@@ -148,6 +165,7 @@ class BaseWorkerSubagent:
                     "result": WorkerResponse(
                         status="failed",
                         summary="Worker was invoked without an active request.",
+                        artifacts={"error": "missing_request"},
                     ).model_dump(),
                 },
                 "worker_request": None,
@@ -181,6 +199,7 @@ class BaseWorkerSubagent:
             structured_result = WorkerResponse(
                 status="failed",
                 summary=f"Worker execution failed: {error}",
+                artifacts={"error": str(error)},
             ).model_dump()
 
         worker_record = {

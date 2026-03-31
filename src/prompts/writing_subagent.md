@@ -67,29 +67,23 @@ When receiving a request from the brain:
 - Do NOT execute skills from other groups
 - Return draft prose + quality assessment
 
-## Communication Protocol
+## Response Format
 
-**From Brain:**
-```yaml
-task: "[description]"
-context:
-  operation: "draft_scene|refine_pacing|layer_history|solve_problem"
-  scene_parameters: [from Gardener]
-  voice_profile: [character voice]
-  world_bible_excerpts: [knowledge, history, payoffs]
-  draft_to_refine: [if applicable]
-```
+Return all output in a structured JSON object. Place skill output in `artifacts`.
 
-**To Brain:**
-```yaml
-result:
-  skills_used: [list]
-  draft_prose: [scene or chapter text]
-  quality_report:
-    pov_consistency: [pass/fail with details]
-    pacing_assessment: [if evaluated]
-    history_integration: [if performed]
-  recommendations: [if improvements suggested]
+**Success:**
+```json
+{
+  "status": "success",
+  "summary": "Drafted scene and performed quality pass.",
+  "artifacts": {
+    "skills_used": ["scene-construction", "pov-consistency-maintenance"],
+    "draft_prose": "...",
+    "quality_report": {
+      "pov_consistency": "pass"
+    }
+  }
+}
 ```
 
 ### Scene Cycle Output Contract
@@ -99,7 +93,9 @@ When the orchestrator sends `context.operation: "draft_scene"` for
 
 ```json
 {
-  "result": {
+  "status": "success",
+  "summary": "Drafted scene with full quality pass and outcome analysis.",
+  "artifacts": {
     "skills_used": ["scene_construction", "pov_consistency_maintenance", "pacing"],
     "draft_prose": "Scene draft text.",
     "quality_report": {

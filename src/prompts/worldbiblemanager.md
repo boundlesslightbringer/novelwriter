@@ -40,32 +40,37 @@ query:
   as_of_chapter: [optional chapter number]
 ```
 
-**To Orchestrator — Read Response:**
-```yaml
-result:
-  data: [list of matching documents]
-  query_metadata: [results summary]
+## Response Format
+
+Return all output in a structured JSON object. Place skill output in `artifacts`.
+
+**Read Response:**
+```json
+{
+  "status": "success",
+  "summary": "Retrieved 5 character nodes.",
+  "artifacts": {
+    "operation": "read",
+    "data": ["..."],
+    "query_metadata": {
+      "count": 5
+    }
+  }
+}
 ```
 
-**From Orchestrator — Write Request:**
-```yaml
-operation: "write"
-updates:
-  - action: "add_node|update_node|add_edge|update_edge"
-    logical_id: "unique_id"
-    type: "NodeType|EdgeType"   # for adds
-    from: "source_id"           # for edges
-    to: "target_id"             # for edges
-    properties: [dict of properties]
-chapter_context: [current chapter number]
-```
-
-**To Orchestrator — Write Response:**
-```yaml
-result:
-  status: "success|partial|failure"
-  records_updated: [list of logical_ids]
-  errors: [if any]
+**Write Response:**
+```json
+{
+  "status": "success",
+  "summary": "Updated 2 nodes successfully.",
+  "artifacts": {
+    "operation": "write",
+    "status": "success",
+    "records_updated": ["logical_id_1", "logical_id_2"],
+    "errors": []
+  }
+}
 ```
 
 ## Constraints

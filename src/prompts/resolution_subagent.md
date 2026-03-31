@@ -54,20 +54,24 @@ Input:
 Output:
 ```json
 {
-  "mode": "ANALYSE",
-  "contradiction_id": "<from input>",
-  "briefing": "<plain-language briefing for the orchestrator to relay verbatim>",
-  "resolution_options": [
-    {
-      "option_id": "A",
-      "label": "<short descriptive label>",
-      "description": "<what this option changes and what it leaves intact>",
-      "affected_modules": ["2.1", "5.2"],
-      "complexity": "Low | Medium | High"
-    }
-  ],
-  "recommended_option": "A",
-  "recommendation_rationale": "<one sentence>"
+  "status": "success",
+  "summary": "Analysed contradiction and generated resolution options.",
+  "artifacts": {
+    "mode": "ANALYSE",
+    "contradiction_id": "<from input>",
+    "briefing": "<plain-language briefing for the orchestrator to relay verbatim>",
+    "resolution_options": [
+      {
+        "option_id": "A",
+        "label": "<short descriptive label>",
+        "description": "<what this option changes and what it leaves intact>",
+        "affected_modules": ["2.1", "5.2"],
+        "complexity": "Low | Medium | High"
+      }
+    ],
+    "recommended_option": "A",
+    "recommendation_rationale": "<one sentence>"
+  }
 }
 ```
 
@@ -151,23 +155,29 @@ Input:
 Output on success:
 ```json
 {
-  "mode": "IMPLEMENT",
-  "status": "RESOLVED",
-  "contradiction_id": "<from input>",
-  "resolution_type": "Resolved | Accepted as intentional ambiguity",
-  "writes_executed": [
-    {
-      "operation": "update | insert | delete",
-      "collection": "<collection>",
-      "filter": {},
-      "outcome": "success"
+  "status": "success",
+  "summary": "Implemented contradiction resolution successfully.",
+  "artifacts": {
+    "resolution_result": {
+      "mode": "IMPLEMENT",
+      "status": "RESOLVED",
+      "contradiction_id": "<from input>",
+      "resolution_type": "Resolved | Accepted as intentional ambiguity",
+      "writes_executed": [
+        {
+          "operation": "update | insert | delete",
+          "collection": "<collection>",
+          "filter": {},
+          "outcome": "success"
+        }
+      ],
+      "module_5_3_updated": true,
+      "re_issue_signal": {
+        "action": "RE_ISSUE_BLOCKED_WRITE",
+        "originating_write_type": "<write_type from blocked_write>",
+        "note": "Resolution complete. The originating subagent must re-issue the blocked write. The WorldBibleManager will re-run contradiction detection on the re-issued write."
+      }
     }
-  ],
-  "module_5_3_updated": true,
-  "re_issue_signal": {
-    "action": "RE_ISSUE_BLOCKED_WRITE",
-    "originating_write_type": "<write_type from blocked_write>",
-    "note": "Resolution complete. The originating subagent must re-issue the blocked write. The WorldBibleManager will re-run contradiction detection on the re-issued write."
   }
 }
 ```
@@ -175,13 +185,19 @@ Output on success:
 Output on failure:
 ```json
 {
-  "mode": "IMPLEMENT",
-  "status": "RESOLUTION_FAILED",
-  "contradiction_id": "<from input>",
-  "failed_at_step": 0,
-  "error_details": "<description of what failed>",
-  "writes_executed_before_failure": [],
-  "note": "No partial writes committed. Orchestrator must surface this failure to the user."
+  "status": "error",
+  "summary": "Failed to implement contradiction resolution.",
+  "artifacts": {
+    "resolution_result": {
+      "mode": "IMPLEMENT",
+      "status": "RESOLUTION_FAILED",
+      "contradiction_id": "<from input>",
+      "failed_at_step": 0,
+      "error_details": "<description of what failed>",
+      "writes_executed_before_failure": [],
+      "note": "No partial writes committed. Orchestrator must surface this failure to the user."
+    }
+  }
 }
 ```
 
