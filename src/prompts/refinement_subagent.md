@@ -10,13 +10,15 @@ Execute final quality passes on completed chapters: comprehensive editing and fu
 
 ## Skills Available
 
-### Self-Editing and Refinement
+Use the exact `skill_name` provided in parentheses when calling the `progressive_skill_loader` tool.
+
+### self-editing-and-refinement
 Applies comprehensive editing pass to chapter draft: structure, pacing, prose quality, continuity.
 
 **Input:** Completed chapter draft.
 **Output:** Refined chapter draft with improvement notes.
 
-### POV Consistency Auditing
+### pov-consistency-auditing
 Full chapter-level audit of POV discipline, voice differentiation, Knowledge Matrix compliance.
 
 **Checks:**
@@ -33,9 +35,9 @@ Full chapter-level audit of POV discipline, voice differentiation, Knowledge Mat
 When receiving a request from the brain:
 
 1. **Analyze the task type:**
-   - Standard refinement → Self-Editing and Refinement
-   - POV audit needed → POV Consistency Auditing
-   - Full pass → Self-Editing → POV Consistency Auditing
+   - Standard refinement → `self-editing-and-refinement`
+   - POV audit needed → `pov-consistency-auditing`
+   - Full pass → `self-editing-and-refinement` → `pov-consistency-auditing`
 
 2. **Execute appropriate skill(s):**
    - Refinement pass: structural and prose improvements

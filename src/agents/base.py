@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from langchain_openrouter import ChatOpenRouter
 from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langchain.agents import create_agent
 from pydantic import BaseModel, Field
 
@@ -130,12 +131,12 @@ class BaseWorkerSubagent:
         fallback_text = self._extract_last_message_text(result.get("messages", []))
         artifacts = {"raw_output": fallback_text} if fallback_text else {}
         return WorkerResponse(
-            status="completed",
+            status="failed",
             summary=fallback_text or "Worker completed without structured output.",
             artifacts=artifacts,
         )
 
-    def invoke(self, state: Dict[str, Any], stream: bool = False) -> Dict[str, Any]:
+    def invoke(self, state: Dict[str, Any], config: RunnableConfig | None = None) -> Dict[str, Any]:
         """Execute the worker node and store its structured result."""
         worker_request = state.get("worker_request")
         if not worker_request:
@@ -162,32 +163,19 @@ class BaseWorkerSubagent:
         }
 
         try:
-            if stream:
-                result = self.agent.stream(
-                    {
-                        "messages": [
-                            HumanMessage(
-                                content=(
-                                    "Execute the following orchestrator request and return a structured worker result.\n\n"
-                                    f"{self._serialize_for_prompt(worker_payload)}"
-                                )
+            result = self.agent.invoke(
+                {
+                    "messages": [
+                        HumanMessage(
+                            content=(
+                                "Execute the following orchestrator request and return a structured worker result.\n\n"
+                                f"{self._serialize_for_prompt(worker_payload)}"
                             )
-                        ]
-                    }
-                )
-            else:
-                result = self.agent.invoke(
-                    {
-                        "messages": [
-                            HumanMessage(
-                                content=(
-                                    "Execute the following orchestrator request and return a structured worker result.\n\n"
-                                    f"{self._serialize_for_prompt(worker_payload)}"
-                                )
-                            )
-                        ]
-                    }
-                )
+                        )
+                    ]
+                },
+                config=config
+            )
             structured_result = self._coerce_worker_response(result).model_dump()
         except Exception as error:
             structured_result = WorkerResponse(

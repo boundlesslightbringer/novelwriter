@@ -1,20 +1,7 @@
+import uuid
 from typing import Any
 
 from langchain_core.messages import HumanMessage
-
-
-def _build_turn_input(session_state: dict[str, Any], user_input: str) -> dict[str, Any]:
-    """Create the graph input state for the next terminal turn."""
-    next_messages = list(session_state.get("messages", []))
-    next_messages.append(HumanMessage(content=user_input))
-    return {
-        **session_state,
-        "messages": next_messages,
-        "iteration_count": 0,
-        "final_response": None,
-        "active_worker": None,
-        "worker_request": None,
-    }
 
 
 def main() -> None:
@@ -29,7 +16,11 @@ def main() -> None:
 
     config = NovelWriterConfig()
     orchestrator = GRRMOrchestrator(config)
-    session_state = orchestrator.create_initial_state()
+    
+    # Generate a unique thread ID for this terminal session
+    thread_id = str(uuid.uuid4())
+    run_config = {"configurable": {"thread_id": thread_id}}
+    
     print("GRRM orchestrator initialized.")
     print("Type 'exit' or 'quit' to stop.")
 
@@ -43,8 +34,17 @@ def main() -> None:
 
             print("\nOrchestrator> ", end="", flush=True)
             
+            turn_input = {
+                "messages": [HumanMessage(content=user_input)],
+                "iteration_count": 0,
+                "final_response": None,
+                "active_worker": None,
+                "worker_request": None,
+            }
+            
             for event_type, event_data in orchestrator.graph.stream(
-                _build_turn_input(session_state, user_input), 
+                turn_input, 
+                config=run_config,
                 stream_mode=["messages", "updates"]
             ):
                 if event_type == "messages":
@@ -59,18 +59,20 @@ def main() -> None:
                                     print(part, end="", flush=True)
                                 elif isinstance(part, dict) and part.get("type") == "text":
                                     print(part.get("text", ""), end="", flush=True)
-                
                 elif event_type == "updates":
-                    for node_name, response in event_data.items():
-                        session_state = {
-                            "messages": response.get("messages", session_state.get("messages", [])),
-                            "worker_history": response.get("worker_history", session_state.get("worker_history", [])),
-                            "latest_worker_result": response.get("latest_worker_result"),
-                            "worker_request": response.get("worker_request"),
-                            "active_worker": response.get("active_worker"),
-                            "final_response": response.get("final_response"),
-                            "iteration_count": response.get("iteration_count", 0),
-                        }
+                    # Print node transitions and worker results for debugging
+                    for node_name, state_update in event_data.items():
+                        if node_name == "brain":
+                            worker = state_update.get("active_worker")
+                            if worker:
+                                print(f"\n[Brain] Delegating to: {worker}")
+                                task = state_update.get("worker_request", {}).get("task", "")
+                                print(f"[Brain] Task: {task}")
+                        elif node_name in orchestrator.workers:
+                            print(f"\n[{node_name}] Completed.")
+                            result = state_update.get("latest_worker_result", {}).get("result", {})
+                            print(f"[{node_name}] Status: {result.get('status')}")
+                            print(f"[{node_name}] Summary: {result.get('summary')}")
             
             print() # Print a newline after the streamed response is complete
         except KeyboardInterrupt:

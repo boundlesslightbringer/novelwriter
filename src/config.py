@@ -6,10 +6,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMConfig(BaseModel):
     """Configuration for an LLM model."""
-    model_name: str = Field(default="moonshotai/kimi-k2.5") # should try minimax-m2.7
+    model_name: str = Field(default="anthropic/claude-sonnet-4.6") 
     model_provider: str = Field(default="openrouter")
-    temperature: float = Field(default=0.69)
-    top_p: Optional[float] = Field(default=None)
+    temperature: float = Field(default=0.5)
+    top_p: Optional[float] = Field(default=0.95)
     top_k: Optional[int] = Field(default=None)
     seed: Optional[int] = Field(default=69)
 

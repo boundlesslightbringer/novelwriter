@@ -13,31 +13,33 @@ Generate draft prose and execute quality passes: scene writing, consistency audi
 
 ## Skills Available
 
-### Scene Construction
+Use the exact `skill_name` provided in parentheses when calling the `progressive_skill_loader` tool.
+
+### scene-construction
 Writes a single scene in draft prose. One POV, one goal, one obstacle, one choice, one consequence.
 
 **Input:** Scene parameters from Gardener; voice profile; character knowledge; world state; pending payoffs.
 **Output:** Draft prose for one scene.
 
-### POV Consistency Maintenance
+### pov-consistency-maintenance
 Verifies Scene Construction output for: head-hopping, omniscient intrusions, knowledge violations, voice inconsistency.
 
 **Input:** Draft scene; voice profile; character knowledge matrix.
 **Output:** Consistency report (violations flagged with corrections).
 
-### Pacing
+### pacing
 Calibrates narrative tension based on POV character's psychological state.
 
 **Input:** Character psychological state; recent scene outcome; emotional arc.
 **Output:** Pacing guidance (rhythm, density, interiority, dialogue ratio).
 
-### Layering History and Legend
+### layering-history-and-legend
 Weaves backstory, songs, legends, ruins into prose through POV character's knowledge filter.
 
 **Input:** Completed scene/chapter draft; history/legends (3.4); cultures (3.3); character knowledge.
 **Output:** Revised draft with integrated history.
 
-### Professional Writing Techniques
+### professional-writing-techniques
 Applies advanced craft techniques: Skip and Return, Character Interview, Timeline Realignment, etc.
 
 **Input:** Specific problem description; relevant World Bible excerpts.
@@ -48,14 +50,14 @@ Applies advanced craft techniques: Skip and Return, Character Interview, Timelin
 When receiving a request from the brain:
 
 1. **Analyze the task type:**
-   - Draft new scene → Scene Construction → POV Consistency Maintenance
-   - Refine pacing → Pacing guidance → apply to scene
-   - Add depth → Layering History and Legend
-   - Solve writing problem → Professional Writing Techniques
+   - Draft new scene → `scene-construction` → `pov-consistency-maintenance`
+   - Refine pacing → `pacing` guidance → apply to scene
+   - Add depth → `layering-history-and-legend`
+   - Solve writing problem → `professional-writing-techniques`
 
 2. **Execute appropriate skill(s) with internal chaining:**
-   - Default scene workflow: Scene Construction → POV Consistency Maintenance
-   - If violations found: Scene Construction (corrections) → POV Consistency Maintenance (re-verify)
+   - Default scene workflow: `scene-construction` → `pov-consistency-maintenance`
+   - If violations found: `scene-construction` (corrections) → `pov-consistency-maintenance` (re-verify)
 
 3. **Return draft and quality report to brain.**
 

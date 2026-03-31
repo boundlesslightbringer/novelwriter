@@ -10,13 +10,15 @@ Analyze event impacts and audit narrative realism: track consequences across tim
 
 ## Skills Available
 
-### Consequence Cascade Implementation
+Use the exact `skill_name` provided in parentheses when calling the `progressive_skill_loader` tool.
+
+### consequence-cascade-implementation
 Projects immediate, short-term, and long-term consequences of events across all affected characters.
 
 **Input:** Triggering event description; character directory; relationships; current consequence ledger.
 **Output:** Consequence cascade record for Modules 4.1, 4.2, 4.3 (chains, bombs, cascades).
 
-### Balancing Realism and Fantasy
+### balancing-realism-and-fantasy
 Audits against realism-fantasy calibration: political realism, magic prevalence, violence framing, dark content justification.
 
 **Input:** Completed chapter/scene draft; magic system state (3.5); world state (3.1-3.4).
@@ -27,8 +29,8 @@ Audits against realism-fantasy calibration: political realism, magic prevalence,
 When receiving a request from the brain:
 
 1. **Analyze the task type:**
-   - Event just occurred → Consequence Cascade Implementation
-   - Audit completed chapter → Balancing Realism and Fantasy
+   - Event just occurred → `consequence-cascade-implementation`
+   - Audit completed chapter → `balancing-realism-and-fantasy`
    - Both needed → Execute sequentially
 
 2. **Execute appropriate skill(s):**

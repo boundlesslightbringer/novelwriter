@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from operator import add
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Literal, TypedDict
@@ -6,6 +7,7 @@ from typing import Annotated, Any, Dict, List, Literal, TypedDict
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, AnyMessage, BaseMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
@@ -81,9 +83,18 @@ class DeferredContradiction(TypedDict):
     deferral_note: str
 
 
+def limit_worker_history(left: List[WorkerRecord] | None, right: List[WorkerRecord] | None) -> List[WorkerRecord]:
+    """Custom reducer to keep only the last 5 worker records in state."""
+    if not left:
+        left = []
+    if not right:
+        right = []
+    return (left + right)[-5:]
+
+
 class OrchestratorState(TypedDict, total=False):
     messages: Annotated[List[AnyMessage], add_messages]
-    worker_history: Annotated[List[WorkerRecord], add]
+    worker_history: Annotated[List[WorkerRecord], limit_worker_history]
     latest_worker_result: WorkerRecord | None
     worker_request: WorkerRequest | None
     active_worker: WorkerName | None
@@ -131,6 +142,10 @@ class GRRMOrchestrator:
         llm = init_chat_model(model=model_name, model_provider="openrouter", **model_kwargs)
         self.llm = llm
         self.brain_router = llm.with_structured_output(BrainDecision)
+
+        # Initialize SQLite connection and checkpointer
+        self.db_conn = sqlite3.connect("orchestrator_checkpoints.db", check_same_thread=False)
+        self.memory = SqliteSaver(self.db_conn)
 
         # Compile graph
         self.graph = self._build_graph()
@@ -381,7 +396,11 @@ class GRRMOrchestrator:
         messages = self._build_brain_messages(state)
         
         # Add a system prompt instructing the model to respond to the user
-        messages.append(SystemMessage(content="You have decided to respond to the user. Generate your final response now based on the conversation and worker history."))
+        messages.append(SystemMessage(content=(
+            "You have decided to respond to the user. Generate your final response now "
+            "based on the conversation and worker history. DO NOT output any JSON, "
+            "routing commands, or delegation tags. Speak naturally to the human."
+        )))
         
         response = self.llm.invoke(messages, config)
         
@@ -422,4 +441,4 @@ class GRRMOrchestrator:
             
         graph.add_edge("respond", END)
 
-        return graph.compile()
+        return graph.compile(checkpointer=self.memory)

@@ -13,7 +13,8 @@ dependencies = [
     "langchain>=1.2.12",
     "langgraph>=1.1.2",
     "pydantic-settings>=2.12.1",
-    "langchain-openrouter"
+    "langchain-openrouter",
+    "langgraph-checkpoint-sqlite"
 ]
 
 [tool.ruff]

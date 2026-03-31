@@ -9,7 +9,9 @@ Diagnose story problems and provide resolution paths: character in impossible si
 
 ## Skills Available
 
-### Resolving Obstacles and Untangling Tangles
+Use the exact `skill_name` provided in parentheses when calling the `progressive_skill_loader` tool.
+
+### resolving-obstacles-and-untangling-tangles
 Diagnoses tangle type and selects appropriate resolution technique.
 
 **Tangle Types:**
@@ -69,7 +71,7 @@ context:
 **To Brain:**
 ```yaml
 result:
-  skill_used: "Resolving Obstacles and Untangling Tangles"
+  skill_used: "resolving-obstacles-and-untangling-tangles"
   diagnosis:
     tangle_type: "[classified]"
     technique_selected: "[method]"
