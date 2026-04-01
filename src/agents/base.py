@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -59,6 +60,7 @@ class BaseWorkerSubagent:
 
         llm = ChatGoogleGenerativeAI(
             model=model_name,
+            vertexai=True,
             **model_kwargs)
         
         return create_agent(
