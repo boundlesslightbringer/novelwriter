@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMConfig(BaseModel):
     """Configuration for an LLM model."""
-    model_name: str = Field(default="gemini-3-flash-preview")
+    model_name: str = Field(default="gemini-3.1-pro-preview")
     model_provider: str = Field(default="google_genai")
     temperature: float = Field(default=1)
     top_p: Optional[float] = Field(default=0.95)
@@ -24,11 +24,13 @@ class NovelWriterConfig(BaseSettings):
     agent_llm_overrides: Dict[str, LLMConfig] = Field(default_factory=dict)
     
     # Orchestrator settings
-    max_brain_iterations: int = Field(default=3)
+    max_brain_iterations: int = Field(default=15)
+    max_rejection_budget: int = Field(default=2)
     
     # MongoDB settings
     mongodb_uri: str = Field(default="mongodb://localhost:27017/")
     mongodb_db_name: str = Field(default="novelwriter_kg")
+    mongodb_checkpoint_db_name: str = Field(default="novelwriter_checkpoints")
 
     model_config = SettingsConfigDict(
         env_file=".env",

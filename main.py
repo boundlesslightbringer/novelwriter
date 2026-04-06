@@ -2,7 +2,9 @@ import uuid
 from typing import Any
 
 from langchain_core.messages import HumanMessage
+import warnings
 
+warnings.filterwarnings("ignore", message=".*quota project.*")
 
 def main() -> None:
     """Start a terminal REPL that talks only to the orchestrator graph."""
