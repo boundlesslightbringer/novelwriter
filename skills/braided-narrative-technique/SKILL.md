@@ -1,185 +1,240 @@
 ---
 name: braided-narrative-technique
-description: Ensures POV storylines run parallel, intersect meaningfully at convergence points, and contain no redundant scenes (same event shown from two POVs with no new information added). Operates at the chapter-sequence level, not the individual scene level. Invoked when a storyline redundancy or convergence question arises. Outputs analysis only — does not rewrite.
+description: Ensures POV storylines run parallel, intersect meaningfully at convergence points, and contain no redundant scenes (same event shown from two POVs with no new information added). Operates at the chapter-sequence level. Queries Story State KG directly for the POV chapter log and plot thread registry. Returns braiding analysis in artifacts — convergence opportunities, redundancy flags, parallel tension assessment, ranked recommendations. Invoked when a storyline redundancy or convergence question arises, or as a periodic structural health check.
 ---
 
 # Braided Narrative Technique
 
 ## Identity
 
-**Purpose:** Analyse the multi-POV narrative as a braided structure — examining whether the POV storylines are running with productive parallel tension, intersecting at genuinely meaningful convergence points, and carrying no redundant scenes where showing the same event from a second POV adds nothing the reader does not already have. Output is analysis and recommendations; the main agent decides what to act on.
+**Purpose:** Analyse the multi-POV narrative as a braided structure — examining whether the POV storylines are running with productive parallel tension, intersecting at genuinely meaningful convergence points, and containing no redundant scenes where showing the same event from a second POV adds nothing the reader does not already have. Output is analysis and recommendations; no rewrites.
 
-> **Sibling skills:** This skill works alongside [multiple-pov-structure](../multiple-pov-structure/SKILL.md) (determines which POV narrates next) and [plot-thread-tracking](../plot-thread-tracking/SKILL.md) (tracks thread convergence windows). Use all three together for comprehensive multi-POV orchestration.
+> **Sibling skills:** Works alongside `multiple-pov-structure` (determines which POV narrates next) and `plot-thread-tracking` (tracks thread convergence windows). All three can be used together for comprehensive multi-POV orchestration.
 
 ---
 
 ## Core
 
-Ensure POV storylines run parallel, intersect meaningfully at planned and discovered convergence points, and contain no redundant scenes. Operates at chapter-sequence level, not individual scene level. Outputs braiding analysis — convergence opportunities, redundancy flags, suggested connection points. Does not rewrite. Does not make plot decisions.
+Ensure POV storylines run parallel, intersect meaningfully at planned and discovered convergence points, and contain no redundant scenes. Operates at chapter-sequence level. Returns braiding analysis — convergence opportunities, redundancy flags, parallel tension assessment, ranked recommendations. Does not rewrite. Does not make plot decisions.
 
 ---
 
 ## Input
 
-The main agent provides:
+### From brain context (`worker_request.context`)
 
-1. **World Bible excerpt — Module 2.2 (POV Chapter Log):** The complete log of all chapters written — POV assignments, locations, scene summaries, cliffhanger status, inter-storyline connections, and chapter deltas. This is the primary material for braiding analysis.
+1. **`chapter_context`** — Current chapter number. Used to scope all KG queries. Required.
+2. **`analysis_range`** (optional) — `{"from_chapter": N, "to_chapter": M}`. If provided, focuses the analysis on this span rather than the full narrative to date. Useful when the brain wants a targeted check rather than a full structural audit.
+3. **`endpoint_compass`** (optional) — Milestones from `defining-rough-endpoints`. Passed by the brain when the story is approaching a milestone and the brain wants to assess whether the braid's trajectory is moving toward it.
 
-2. **World Bible excerpt — Module 2.3 (Plot Thread Registry):** All active, dormant, and resolved threads — their characters, convergence windows, dependencies, and resolution status. Thread convergence windows inform where the braid should be pulling toward.
+### Fetched from Story State KG
 
-3. *(Optional)* **Endpoint compass** — the milestones from Defining Rough Endpoints. If the main agent wants to check whether the braid's current trajectory is moving toward the story's major structural moments, the compass provides that reference.
+The plotting_subagent queries the Story State KG directly:
 
-4. *(Optional)* **Chapter range for analysis** — if the main agent wants a focused analysis of a specific span of chapters (e.g. the last ten chapters, or chapters approaching a known convergence point) rather than the full narrative to date.
+```
+# Full POV chapter log
+query_kg_nodes({type: "Chapter"},
+               as_of_chapter=chapter_context)
 
-> **Note:** This skill receives excerpts from the main agent. It does not access the World Bible directly.
+# Plot thread registry — all active, dormant, and resolved threads
+query_kg_nodes({type: "PlotThread"},
+               as_of_chapter=chapter_context)
+
+# INVOLVES edges — which characters and events are in each thread
+query_kg_edges({type: "INVOLVES"},
+               as_of_chapter=chapter_context)
+
+# All POV-eligible characters — for storyline mapping
+query_kg_nodes({type: "Character",
+                "properties.pov_eligible": true},
+               as_of_chapter=chapter_context)
+
+# DEPENDS_ON edges between threads — for dependency-aware convergence analysis
+query_kg_edges({type: "DEPENDS_ON"},
+               as_of_chapter=chapter_context)
+```
+
+Sort Chapter nodes by `properties.chapter_number` after retrieval. If `analysis_range` is provided, filter Chapter nodes to the specified span before analysis.
 
 ---
 
 ## Output
 
-**Braiding analysis** — a structured report containing:
+All output is returned in `artifacts`. Braiding analysis is pure analysis — no KG persistence needed. The brain uses the recommendations to decide follow-up delegations.
 
-### 1. Braid Map Summary
+### `artifacts` structure
 
-A concise representation of the current state of each POV storyline — where it is spatially, temporally, and narratively. This is not a retelling of the plot; it is a structural snapshot that makes the braid's shape visible:
-- Which storylines are running in parallel without yet intersecting?
-- Which storylines have already intersected, and what was the nature of that intersection?
-- Which storylines are converging toward an imminent intersection?
+```json
+{
+  "braid_map_summary": {
+    "pov_storylines": [
+      {
+        "character_id": "char_<slug>",
+        "character_name": "<n>",
+        "chapter_count": 0,
+        "chapters": [0],
+        "current_narrative_position": "<where this storyline stands at the analysis point>",
+        "storyline_status": "Active | Dormant | Not yet introduced"
+      }
+    ],
+    "intersection_points": [
+      {
+        "chapter_numbers": [0, 0],
+        "characters_involved": ["char_<a>", "char_<b>"],
+        "nature": "<direct interaction | same event different POVs | information crossover>"
+      }
+    ],
+    "current_braid_shape": "<concise description — e.g. 'two-strand with Aldric running parallel'>"
+  },
+  "redundancy_flags": [
+    {
+      "chapters": [0, 0],
+      "pov_characters": ["char_<a>", "char_<b>"],
+      "shared_event": "<what event is shown from both POVs>",
+      "new_information_test": "PASS | FAIL",
+      "new_register_test": "PASS | FAIL",
+      "verdict": "Not redundant | Redundant",
+      "recommendation": "<cut second rendering | replace | restructure>"
+    }
+  ],
+  "convergence_opportunities": [
+    {
+      "threads_involved": ["thread_<a>", "thread_<b>"],
+      "characters_involved": ["char_<slug>"],
+      "type": "Planned | Discovered | Near-miss",
+      "imminence": "Imminent (1–3 chapters) | Developing | Distant",
+      "narrative_meaning": "<what this convergence would mean for the story>",
+      "status": "On track | At risk | Missed",
+      "note": "<specific action recommended if at risk>"
+    }
+  ],
+  "parallel_tension_assessment": [
+    {
+      "chapters_span": [0, 0],
+      "storylines_running_parallel": ["char_<a>", "char_<b>"],
+      "thematic_rhyme": true,
+      "dramatic_irony_active": false,
+      "isolation_risk": false,
+      "assessment": "<what is working or needs attention in this parallel section>"
+    }
+  ],
+  "recommendations": {
+    "immediate": ["<issues that will compound if left unaddressed>"],
+    "near_term": ["<convergence opportunities that will pass soon>"],
+    "monitor": ["<tendencies not yet problems but worth watching>"]
+  },
+  "kg_context_used": {
+    "chapter_nodes_found": 0,
+    "pov_characters_found": 0,
+    "plot_threads_found": 0
+  }
+}
+```
 
-### 2. Redundancy Flags
-
-A flag for every scene or chapter where the same event is shown from two different POVs. For each flagged instance:
-- **What event** is shown from multiple angles.
-- **What the first POV rendering established** for the reader.
-- **What the second POV rendering adds** — or fails to add. The critical distinction:
-  - *New information:* The second POV reveals facts, interiority, or knowledge that the first POV could not access. This is not redundant — it is deliberate irony or revelation architecture.
-  - *New emotional register:* The second POV shows the same event through a genuinely different psychological lens that transforms its meaning. This is not redundant — it is dramatic counterpoint.
-  - *Neither:* The second POV restates what the reader already knows, from a perspective that adds no information and no meaningful reframing. This is redundant and should be flagged for removal or replacement.
-- **Recommendation:** Cut the redundant rendering / replace it with a scene that advances the second POV character's storyline independently / restructure so the second POV arrives at the event through a genuinely different information state.
-
-### 3. Convergence Opportunities
-
-A list of convergence points — moments where POV storylines could meaningfully intersect — distinguishing:
-- **Planned convergences:** Intersections that were anticipated in the thread registry or endpoint compass. Flag whether they are on track, approaching ahead of schedule, or at risk of being missed.
-- **Discovered convergences:** Intersections that have emerged organically from the writing — not planned, but now legible in the braid. Flag these as opportunities: the main agent may choose to develop them, or to let them be present as structural resonance without explicit intersection.
-- **Missed convergences:** Points where storylines were close enough to intersect meaningfully but did not. Flag whether the miss was deliberate (the near-miss is itself a structural choice, building toward a later intersection) or inadvertent.
-
-### 4. Parallel Tension Assessment
-
-An assessment of whether the parallel storylines — the sections of the braid where POV characters are not intersecting — are generating productive tension or coasting. A multi-POV narrative depends on the reader holding multiple storylines simultaneously; the storylines must be in productive dialogue even when they are not in direct contact. For each parallel section:
-- Are the storylines thematically rhyming — exploring different facets of the same question from different positions?
-- Are they in dramatic irony with each other — does the reader know something from one POV that creates dread or anticipation about what another POV character is walking into?
-- Or are they running in isolation — neither rhyming nor in irony, merely coexisting? This is the weakest configuration and should be flagged.
-
-### 5. Braiding Recommendations
-
-Specific, actionable recommendations for the main agent, ranked by urgency:
-- **Immediate:** Redundancies or structural gaps that, if left unaddressed, will compound and become harder to fix.
-- **Near-term:** Convergence opportunities that will pass if not developed soon.
-- **Monitor:** Issues that are not yet problems but should be watched.
+A redundancy flag's verdict is `"Not redundant"` when either `new_information_test` or `new_register_test` passes — both must fail for a redundancy verdict.
 
 ---
 
 ## Boundary
 
-- **Does not** operate at the individual scene level — it analyses chapter sequences, not the internal structure of individual scenes. Conflict Layering and Scene Construction handle scene-level concerns.
-- **Does not** rewrite any scene or chapter. Flags, analyses, and recommends; the main agent decides what to act on.
-- **Does not** make plot decisions. It surfaces convergence opportunities — the main agent decides whether to develop them.
-- **Does not** determine POV assignment for upcoming chapters. That is Multiple POV Structure's domain.
-- **Does not** audit individual POV voice consistency. That is POV Consistency Maintenance and POV Consistency Auditing's domain.
-- **Does not** update the World Bible. Output is analysis returned to the main agent.
+- **Does not** operate at the individual scene level — analyses chapter sequences only.
+- **Does not** rewrite any scene or chapter.
+- **Does not** make plot decisions — surfaces convergence opportunities; the brain decides whether to develop them.
+- **Does not** determine POV assignment for upcoming chapters. That is `multiple-pov-structure`.
+- **Does not** audit individual POV voice consistency. That is `pov-consistency-maintenance`.
+- **Does not** write to the Story State KG. Output is analysis returned to the brain.
 
 ---
 
 ## Invocation
 
-The main agent invokes Braided Narrative Technique:
+The `plotting_subagent` invokes this skill when the brain delegates a braiding analysis:
 
-- When a storyline redundancy question arises — the main agent suspects a scene is showing something the reader already knows from another POV.
-- When a convergence question arises — storylines are approaching each other and the main agent wants to assess whether the intersection is structurally sound.
-- Periodically as a structural health check — every five to ten chapters is a reasonable cadence for multi-POV narratives, or when the story has been written in a long linear stretch and the braiding has not been examined.
-- When the story feels structurally slack — chapters passing without sufficient inter-storyline tension — and the main agent suspects the problem is in the braiding rather than in any individual scene.
+- When a storyline redundancy question arises — the brain suspects a scene shows something the reader already knows from another POV.
+- When a convergence question arises — storylines are approaching each other and the brain wants to assess whether the intersection is structurally sound.
+- Periodically as a structural health check, roughly every 5–10 chapters in a multi-POV narrative, or when the story has been written in a long linear stretch.
+- When the story feels structurally slack and the brain suspects the problem is in the braiding rather than in any individual scene.
+
+This skill is not invoked at every chapter boundary — only when there is a specific braiding concern or a periodic check is due.
 
 ---
 
-## World Bible Interface
+## Story State Interface
 
-| Direction | Modules |
-|-----------|---------|
-| **Reads from** (as excerpts provided by main agent) | Module 2.2 (POV Chapter Log), Module 2.3 (Plot Thread Registry). Optionally: endpoint compass. |
-| **Main agent writes to** | Nothing — analysis is returned to the main agent; no World Bible update occurs from this skill's output. |
+| Direction | Details |
+|---|---|
+| **Queries from Story State KG** | Chapter nodes (full chapter log, sorted); PlotThread nodes (all statuses); INVOLVES edges (characters and events per thread); POV-eligible Character nodes; DEPENDS_ON edges (thread dependencies). All queried with `as_of_chapter` |
+| **Returns in artifacts** | Full braiding analysis — braid map, redundancy flags, convergence opportunities, parallel tension assessment, ranked recommendations. No KG persistence needed |
 
 ---
 
 ## Dependencies
 
-**Upstream:** Module 2.2 and Module 2.3 must be current before this skill is invoked. **Plot Thread Tracking** output (if recently generated) may be passed alongside the Module 2.3 excerpt for richer convergence analysis.  
-**Downstream:** Recommendations may trigger re-invocation of **Scene Construction** (to replace a redundant scene), **Multiple POV Structure** (to adjust upcoming POV assignments in response to braiding analysis), or **Gardener Plotting System** (to develop a discovered convergence opportunity).
+**Upstream:** Chapter nodes, PlotThread nodes, and INVOLVES edges must be current in Story State KG. Brain provides `chapter_context`.
+
+**Downstream:** `recommendations.immediate` items may trigger follow-up brain delegations to `writing_subagent` (to replace a redundant scene), `multiple-pov-structure` (to adjust upcoming POV assignments), or `plotting_subagent (gardener-plotting-system)` (to develop a discovered convergence opportunity).
 
 ---
 
 ## Instructions
 
-### Step 1 — Build the braid map
+### Step 1 — Query the Story State KG
 
-From the POV Chapter Log, construct a structural picture of the braid. For each active POV character, list their chapters in sequence. Lay them against each other chronologically (using Module 2.1 for temporal orientation if needed). The result is the braid's current shape:
-- Parallel sections (POVs running independently).
-- Intersection points (chapters where POV characters are in the same location or directly interacting events).
-- Gaps (periods where a POV is absent from the narrative).
+Run all specified queries at `as_of_chapter = chapter_context`. Sort Chapter nodes by `properties.chapter_number`. If `analysis_range` is provided, filter to that span. Populate `kg_context_used`.
 
-This map is the analytical foundation for everything that follows. Make it explicit — even a simplified text representation (e.g. "Ch. 1–5: A and B parallel; Ch. 6: A intersects C; Ch. 7–10: B dormant; Ch. 11: B returns...") is more useful than a narrative description.
+### Step 2 — Build the braid map
 
-### Step 2 — Audit for redundancy
+From the Chapter nodes and POV-eligible Character nodes, construct a structural picture of the braid. For each POV character, list their chapters in sequence. Lay them against each other chronologically. Identify:
+- Parallel sections (POVs running independently)
+- Intersection points (chapters where POV characters are in the same location or directly interacting)
+- Gaps (periods where a POV is absent)
 
-For every chapter in the log, check: does this chapter render an event that has already been rendered by another POV?
+This map is the analytical foundation for everything that follows. Populate `braid_map_summary`. The `current_braid_shape` field should be a concise text description — even a simple notation ("Ch. 1–5: A and B parallel; Ch. 6: A intersects C; Ch. 7–10: B dormant...") is more useful than a narrative description.
 
-If yes, apply the test: what does the second rendering add?
+### Step 3 — Audit for redundancy
 
-**New information test:** Does the second POV have access to facts, actions, or knowledge that the first POV could not see? (The first POV was in the room; the second POV is in the room too but knows something the first does not.) If the answer is yes — and the new information is narratively material — this is not redundancy. It is information architecture.
+For every chapter in the log, check: does this chapter render an event that has already been rendered by another POV? If yes, apply both tests:
 
-**New register test:** Does the second POV experience the event through a psychological lens so different that the *meaning* of the event is transformed? (The first POV reads a conversation as a political negotiation; the second reads the same conversation as a moment of personal betrayal.) If the answer is yes — and the transformation is genuinely illuminating — this is not redundancy. It is dramatic counterpoint.
+**New information test:** Does the second POV have access to facts, actions, or knowledge that the first POV could not see? If yes and the information is narratively material — PASS. Not redundant.
 
-**If neither test passes:** Flag it. The second rendering is restating known information. Recommend cutting it or replacing it with a scene that advances the second POV's storyline independently.
+**New register test:** Does the second POV experience the event through a psychological lens so different that the *meaning* of the event is transformed? If yes and the transformation is genuinely illuminating — PASS. Not redundant.
 
-### Step 3 — Map convergence points
+**If both tests fail:** REDUNDANT. Populate `redundancy_flags` with a recommendation.
 
-From the Plot Thread Registry, extract convergence windows — where are threads expected to resolve, and which POV characters are involved?
+### Step 4 — Map convergence points
 
-Cross-reference with the braid map: where are POV storylines physically and temporally close enough to intersect? Flag:
-- **Planned convergences on track:** Thread registry convergence windows that the braid map shows the narrative approaching at the expected pace.
-- **Planned convergences at risk:** Convergence windows that the current braid trajectory will miss — either because a storyline is moving too slowly, or because the POV assignment has kept the relevant characters apart longer than the window allows.
-- **Discovered convergences:** Places where the organic development of the narrative has brought storylines into proximity that was not in the thread registry. These are Gardener moments — the story has grown toward something the planning did not anticipate. Flag them as opportunities.
-- **Near-misses to assess:** Places where storylines came close but did not intersect. Ask: was this a deliberate choice (the near-miss itself is meaningful — the reader sees how close they came, which builds toward the eventual real intersection)? Or was it inadvertent? Near-misses only work structurally if the reader is positioned to feel them.
+From PlotThread nodes and their INVOLVES edges, extract convergence windows — where threads are expected to resolve, and which POV characters are involved. Cross-reference with the braid map. Flag:
+- **Planned convergences on track:** Thread convergence windows the braid is approaching at the expected pace.
+- **Planned convergences at risk:** Windows the current braid trajectory will miss.
+- **Discovered convergences:** Places where organic narrative development has brought storylines into proximity not in the thread registry — Gardener moments.
+- **Near-misses to assess:** Places where storylines came close but did not intersect. Was this deliberate?
 
-### Step 4 — Assess parallel tension
+### Step 5 — Assess parallel tension
 
-For each parallel section of the braid — chapters where POV characters are running independently — assess the quality of the inter-storyline tension. Ask:
+For each parallel section of the braid — chapters where POV characters run independently — assess the quality of inter-storyline tension. Ask:
 
-**Thematic rhyme:** Are the parallel storylines exploring the same question from different positions? Two characters in different locations, one learning the cost of loyalty and the other learning the cost of its absence, are in productive thematic dialogue even without physical intersection. This is the braid working as it should.
+**Thematic rhyme:** Are parallel storylines exploring the same question from different positions? (Strong — the braid working as intended.)
 
-**Dramatic irony:** Does the reader know something from one POV that creates dread or anticipation about what another POV character is walking into? This is the most powerful form of parallel tension — the reader holds knowledge that the character does not, and that knowledge charges every subsequent scene with the other POV.
+**Dramatic irony:** Does the reader know something from one POV that creates dread or anticipation about what another POV character is walking into? (Strongest form of parallel tension.)
 
-**Isolation:** Are the parallel storylines running independently with no thematic rhyme and no dramatic irony? This is the weakest configuration. The reader is moving between storylines without any structural reason to hold them together; they will feel like separate stories rather than a braided narrative. Flag these sections.
+**Isolation:** Are parallel storylines running with no thematic rhyme and no dramatic irony? (Weakest configuration — flag as `isolation_risk: true`.)
 
-### Step 5 — Rank and write recommendations
+### Step 6 — Rank and assemble recommendations
 
-Organise recommendations by urgency:
+Organise by urgency:
+- **Immediate:** Confirmed redundancies; convergences about to be missed; long isolation sections.
+- **Near-term:** Discovered convergence opportunities approaching; planned convergences needing attention within a few chapters.
+- **Monitor:** Structural tendencies not yet problems.
 
-**Immediate:** Confirmed redundancies (failed both tests in Step 2); convergences that are about to be missed and cannot be recovered later; parallel sections that have been running in isolation for long enough that reader engagement with the absent POV will have weakened.
+### Step 7 — Assemble and return artifacts
 
-**Near-term:** Discovered convergence opportunities that are approaching and should be developed if the main agent chooses to take them; planned convergences that are on track but will require attention within the next few chapters.
-
-**Monitor:** Structural tendencies — a POV that has been absent too long; a thread whose convergence window is still distant but whose trajectory is not building toward it; a parallel section that is not yet in isolation but is at risk.
-
-### Step 6 — Return the braiding analysis
-
-Return the complete analysis to the main agent. The main agent decides which recommendations to act on and in what order.
+Return the complete artifacts dict with `status: "success"`.
 
 ---
 
 ## Example
 
-For a worked example of input and output, see [examples.md](examples.md).
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ---
 
@@ -187,10 +242,11 @@ For a worked example of input and output, see [examples.md](examples.md).
 
 Before returning output, verify:
 
-- [ ] Braid map is present — the shape of the narrative is made explicit before analysis begins.
-- [ ] Every dual-POV rendering has been tested against both the new information test and the new register test; verdicts are explicit.
+- [ ] Braid map is present and explicit before analysis begins.
+- [ ] Every dual-POV rendering has been tested against both the new information test and the new register test; verdicts are explicit in each flag.
 - [ ] Convergence opportunities distinguish planned, discovered, and near-miss types.
-- [ ] Parallel tension assessment covers every significant parallel section.
-- [ ] Recommendations are ranked by urgency (immediate / near-term / monitor).
+- [ ] Parallel tension assessment covers every significant parallel section found.
+- [ ] Recommendations are ranked into immediate / near-term / monitor.
+- [ ] `isolation_risk: true` is set for genuinely isolated parallel sections, not used as a default.
 - [ ] No rewrites produced. No plot decisions made. No POV assignments specified.
-- [ ] No World Bible writes specified.
+- [ ] No Story State KG writes from this skill.

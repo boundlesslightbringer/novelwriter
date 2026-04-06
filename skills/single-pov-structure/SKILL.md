@@ -202,7 +202,7 @@ Return the complete scheduling document to the main agent. If validation status 
 
 ## Example
 
-For a worked example of input and output, see [examples.md](examples.md).
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ---
 

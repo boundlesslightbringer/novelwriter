@@ -1,55 +1,176 @@
 ---
 name: defining-rough-endpoints
-description: Establishes the story's compass — starting situation (with optional prologue), vague ending destination, 2–4 major milestones, and the core conflict question — from the validated seed. Because milestones naturally involve key characters who do not yet exist, this skill outputs character slot sketches alongside the compass; the main agent then invokes Character Conception in early mode for each slot before milestones are finalised. Invoked once, immediately after Finding a Seed. Main agent writes to World Bible Modules 2.3 and 2.4.
+description: Establishes the story's compass — starting situation (with optional prologue), vague ending destination, 2–4 major milestones, and the core conflict question — from the validated seed. Because milestones naturally involve key characters who do not yet exist, this skill outputs character slot sketches alongside the compass; the brain then delegates to character_subagent for each slot before milestones are finalised. Invoked once (Pass 1) immediately after finding-a-seed, and again (Pass 2) after the brain returns character concepts. The planning_subagent writes to Story State Modules 2.3 and 2.4 via story_state_manager.
 ---
 
 # Defining Rough Endpoints
 
 ## Identity
 
-**Purpose:** Give the story a compass, not a map. Establish where the story begins (including whether a prologue is needed), where it vaguely ends, what major shape-moments lie between, and what single question the entire story is trying to answer. Because milestones naturally imply characters, and characters do not yet exist at this stage, this skill works in two passes via the main agent: a first pass produces draft milestones with character slot sketches; the main agent invokes Character Conception for each slot; a second pass refines the milestones using the conceived characters' logic. The endpoint compass is a direction, not a plan.
+**Purpose:** Give the story a compass, not a map. Establish where the story begins (including whether a prologue is needed), where it vaguely ends, what major shape-moments lie between, and what single question the entire story is trying to answer. Because milestones naturally imply characters, and characters do not yet exist at this stage, this skill works in two passes via the brain: a first pass produces draft milestones with character slot sketches; the brain delegates to `character_subagent` for each slot; a second pass refines the milestones using the conceived characters' logic. The endpoint compass is a direction, not a plan.
 
 ---
 
 ## Core
 
-Establish the story's compass: starting situation (with optional prologue specification), vague ending destination, 2–4 major milestones, and the core conflict question. Milestones naturally involve characters — this skill outputs character slot sketches to enable early Character Conception invocation, then incorporates the resulting character concepts to ensure milestones are grounded in character logic rather than abstract story structure. Endpoints are intentionally loose and will shift as the story grows. Do not plot individual scenes or chapters. Do not outline.
+Establish the story's compass: starting situation (with optional prologue specification), vague ending destination, 2–4 major milestones, and the core conflict question. Milestones naturally involve characters — this skill outputs character slot sketches to enable early Character Conception invocation by the brain, then incorporates the resulting character concepts to ensure milestones are grounded in character logic rather than abstract story structure. Endpoints are intentionally loose and will shift as the story grows. Do not plot individual scenes or chapters. Do not outline.
 
 ---
 
 ## Input
 
-### Pass 1 (required)
+### From brain context (`worker_request.context`)
 
-1. **Validated seed document** from Finding a Seed — seed, generation method, validation record, genre/subgenres, themes, thematic interdependencies, and questions.
-2. *(Optional)* **Thematic or tonal constraints** carried forward.
-3. *(Optional)* **Research material** from Research Integration, if the seed's context requires factual grounding before the compass can be oriented.
+#### Pass 1 (required)
 
-### Pass 2 (required to finalise milestones)
+1. **`seed_document`** — The full seed document from the `finding-a-seed` artifacts of the prior delegation. Contains: seed statement, generation method, validation record, genre, subgenres, themes, thematic interdependencies, and questions.
 
-4. **Character concept documents** — one per character slot, returned by Character Conception after the main agent invokes it for each slot produced in Pass 1. These concepts are used to refine draft milestones so that milestone logic flows from character psychology, not structural convenience.
+2. **`research_output`** (optional) — Structured research notes from a prior `research-integration` delegation, if the brain judged that factual grounding was needed before the compass could be oriented.
 
-> The main agent manages the handoff between passes. This skill does not invoke Character Conception directly.
+3. **`thematic_constraints`** (optional) — Any additional thematic or tonal constraints not captured in the seed document.
+
+#### Pass 2 (required to finalise milestones)
+
+4. **`character_concepts`** — A list of character concept documents, one per character slot produced in Pass 1. These are returned by the brain after it has delegated each slot to `character_subagent` and collected the resulting concepts. Used to refine draft milestones so that milestone logic flows from character psychology, not structural convenience.
+
+5. **`pass_1_output`** — The draft compass output from Pass 1, passed back by the brain so this skill can refine it without re-running the full Pass 1 logic.
+
+### Fetched from Story State KG
+
+None in the standard case. If the brain delegates this skill during a **Reassess** scenario (the Reassess Trigger has fired and the compass is being re-evaluated), the planning_subagent queries existing Story State records for context:
+
+```
+query_kg_nodes({type: "PlotThread"})      → existing thread seeds
+query_kg_nodes({type: "Chapter"})          → how many chapters written
+query_kg_nodes({type: "Character"})        → existing characters to preserve
+```
+
+These reassess queries use `as_of_chapter` equal to the last written chapter so the worker sees story state at the correct narrative position.
 
 ---
 
 ## Output
 
-### Pass 1 Output
+All output is returned in `artifacts`. The brain routes persistence to `story_state_manager`.
 
-1. **Prologue specification** *(if applicable)* — see below.
-2. **Starting situation** — one paragraph.
-3. **Draft ending destination** — 1–2 sentences.
-4. **Draft milestones** — 2–4 milestone sketches, each flagged with which character slots they require.
-5. **Character slot sketches** — one per implied character, structured for Character Conception early invocation (see below).
-6. **Draft core conflict question** — one sentence.
-7. **Compass notes** — what has been left open.
+### Pass 1 artifacts
 
-### Pass 2 Output (final compass)
+```json
+{
+  "pass": 1,
+  "prologue_specification": {
+    "warranted": true,
+    "temporal_relationship": "<how far before Chapter 1>",
+    "pov_or_register": "<whose perspective or what register>",
+    "what_it_establishes": "<what the reader must carry into Ch. 1>",
+    "what_it_withholds": "<what it implies but does not explain>",
+    "relationship_to_milestones": "<whether it is itself a milestone or a precondition>"
+  },
+  "starting_situation": "<one paragraph>",
+  "draft_ending_destination": "<1–2 sentences>",
+  "draft_milestones": [
+    {
+      "milestone_id": "M1",
+      "description": "<1–3 sentences>",
+      "character_slots": ["slot_A", "slot_B"]
+    }
+  ],
+  "character_slot_sketches": [
+    {
+      "slot_id": "slot_A",
+      "narrative_role": "<what story function this character must serve>",
+      "implied_contradiction": "<hypothesis from seed and compass>",
+      "stakes": "<what they stand to lose or gain>",
+      "world_context": "<relevant context from seed and compass>",
+      "open_questions": ["<2–3 questions>"]
+    }
+  ],
+  "draft_core_conflict_question": "<one sentence>",
+  "compass_notes": "<what has been left open>"
+}
+```
 
-The same structure as Pass 1, with milestones refined using the character concept documents received from Character Conception. The final compass replaces the draft. Character slot sketches are superseded by references to the conceived characters by name/role.
+### Pass 2 artifacts (final compass)
 
-> The main agent uses the final compass to initialise World Bible Modules 2.3 and 2.4.
+```json
+{
+  "pass": 2,
+  "prologue_specification": "...",
+  "starting_situation": "...",
+  "ending_destination": "<refined or confirmed>",
+  "milestones": [
+    {
+      "milestone_id": "M1",
+      "description": "<refined using character logic>",
+      "character_references": ["<conceived character name/id>"]
+    }
+  ],
+  "core_conflict_question": "<confirmed or revised>",
+  "compass_notes": "...",
+  "plot_thread_seeds": [
+    {
+      "node_type": "PlotThread",
+      "properties": {
+        "name": "<milestone as initial thread>",
+        "status": "Active",
+        "originating_chapter": 0
+      }
+    }
+  ],
+  "payoff_seeds": [
+    {
+      "node_type": "Payoff",
+      "properties": {
+        "type": "Foreshadowing",
+        "description": "<milestone as early payoff seed>",
+        "planted_in_chapter": 0,
+        "resolution_status": "Pending"
+      }
+    }
+  ]
+}
+```
+
+The `plot_thread_seeds` and `payoff_seeds` arrays are structured as KG node records ready for `story_state_manager` to insert directly.
+
+---
+
+## Boundary
+
+- **Does not** plot individual scenes, chapters, or sequences.
+- **Does not** outline the story.
+- **Does not** create character records — character slot sketches are inputs to `character_subagent` via the brain, not character records.
+- **Does not** build the world beyond what is minimally implied by the compass. Worldbuilding is a separate skill.
+- **Does not** lock the ending.
+- **Does not** delegate to `character_subagent` directly — the brain manages that delegation between passes.
+- **Does not** write to the Story State KG. Returns structured records in artifacts for persistence by `story_state_manager`.
+
+---
+
+## Invocation
+
+The `planning_subagent` invokes this skill in two passes, each triggered by a separate brain delegation:
+
+- **Pass 1:** Brain delegates immediately after `finding-a-seed` completes and its artifacts pass the quality gate. The brain includes the seed document in context.
+- **Pass 2:** Brain delegates after it has collected character concept documents from `character_subagent` (one per slot produced in Pass 1) and includes them in context alongside the Pass 1 output.
+- **Reassess scenario:** If the Reassess Trigger fires and the compass is judged unsound, the brain re-delegates both passes with the original seed, original constraints, and preservation constraints derived from already-written material.
+
+---
+
+## Story State Interface
+
+| Direction | Details |
+|---|---|
+| **Queries from Story State KG** | None in standard flow. In reassess scenario: PlotThread, Chapter, and Character nodes queried to establish preservation constraints |
+| **Returns in artifacts** | Pass 1: draft compass + character slot sketches. Pass 2: final compass + `plot_thread_seeds` and `payoff_seeds` as KG-ready node records for `story_state_manager` to insert into Modules 2.3 and 2.4 |
+
+---
+
+## Dependencies
+
+**Upstream:** Brain provides `seed_document` from prior `finding-a-seed` artifacts. Pass 2 additionally requires `character_concepts` collected by the brain from `character_subagent` delegations (one per slot).
+
+**Downstream:** Pass 1 artifacts include character slot sketches; the brain uses these to delegate individual character conception tasks to `character_subagent`. Pass 2 artifacts include the final compass and KG-ready records; the brain routes these to `story_state_manager` for persistence, then delegates `worldbuilding` to `planning_subagent` using the final compass as context.
 
 ---
 
@@ -65,109 +186,26 @@ A prologue is warranted when one or more of the following apply:
 
 A prologue is **not** warranted simply to provide exposition or worldbuilding context. If the material can be integrated into Chapter 1 or later chapters through the natural filter of a POV character, it should be.
 
-**Prologue specification includes:**
-
-- **Temporal relationship** to Chapter 1: how far before the main narrative? (Days, years, generations?)
-- **POV or narrative register**: whose perspective, or — if omniscient or anonymous — what register?
-- **What it establishes**: what the reader must carry into Chapter 1 that cannot be as effectively established in Chapter 1 itself.
-- **What it withholds**: what the prologue implies but does not explain — the hook that pulls the reader into the main narrative.
-- **Relationship to milestones**: whether the prologue event is itself a milestone, or is a precondition that makes a later milestone legible.
-
-If no prologue is needed, this section is marked **absent** and the starting situation proceeds directly to the Chapter 1 configuration.
-
 ---
 
 ## Character Slot Sketches and the Two-Pass Process
 
 ### The problem
 
-Milestones are not abstract narrative events — they are moments in which specific people make choices, collide, or are broken by circumstances. A milestone without a character is a structural hypothesis, not a story event. But characters do not yet exist at the point Defining Rough Endpoints is first invoked: Worldbuilding has not run, Module 3.1 does not exist, and Character Conception normally reads Module 3.1 as its primary input.
+Milestones are not abstract narrative events — they are moments in which specific people make choices, collide, or are broken by circumstances. A milestone without a character is a structural hypothesis, not a story event. But characters do not yet exist at the point this skill is first invoked.
 
 ### The solution
 
-This skill resolves the problem through a two-pass loop via the main agent:
+**Pass 1 — Draft milestones with character slots:**
+Each draft milestone names the character *type* (role, implied contradiction, implied stakes) without creating a character record. This role description is output as a **character slot sketch** structured for early invocation of Character Conception by the brain.
 
-**Pass 1 — Draft milestones with character slots:**  
-Each draft milestone names the character *type* (role, implied contradiction, implied stakes) without creating a character record. This role description is output as a **character slot sketch** structured for early invocation of Character Conception.
+**Brain delegation — Early Character Conception:**
+The brain delegates to `character_subagent` for each slot, passing the slot sketch as the primary context. `character_subagent` operates in early invocation mode (see character-conception skill), using the world context implied by the endpoint compass in place of a fully populated Story State.
 
-**Main agent loop — Early Character Conception:**  
-The main agent invokes Character Conception for each slot, passing the slot sketch as the primary input instead of Module 3.1. Character Conception operates in **early invocation mode** (see that skill's documentation), using the world context implied by the endpoint compass in place of a fully populated Module 3.1.
+**Pass 2 — Refine milestones with conceived characters:**
+The brain returns the character concept documents to this skill via `worker_request.context`. Draft milestones are refined: abstract role descriptions are replaced with characters whose specific psychology, core contradiction, and desires now drive the milestone logic.
 
-**Pass 2 — Refine milestones with conceived characters:**  
-The main agent returns the character concept documents to this skill. Draft milestones are refined: abstract role descriptions are replaced with characters whose specific psychology, core contradiction, and desires now drive the milestone logic. If a character concept reveals that a draft milestone is implausible or uninteresting given who the character actually is, the milestone is revised or discarded.
-
-> **Gardener principle:** The two-pass process honours the Gardener approach. Characters are not assigned to milestones — milestones are revised to fit the characters who have been conceived. If a conceived character's logic points away from a draft milestone, the character wins.
-
-### Character slot sketch structure
-
-Each character slot sketch contains:
-
-1. **Narrative role** — what story function this character must serve in the milestone context (e.g. "the person whose choice determines the milestone's outcome"; "the figure whose arrival triggers the turning point"; "the character who carries the consequence of this event forward").
-2. **Implied contradiction** — based on the seed and compass, what internal tension does this character's role seem to require? This is a hypothesis, not a specification — Character Conception will find or replace it.
-3. **Stakes** — what does this character stand to lose or gain in the milestone? What makes their presence in this moment consequential?
-4. **World context available** — the relevant world sketch from the endpoint compass and seed (substitutes for Module 3.1 in early invocation mode).
-5. **Open questions** — 2–3 questions about this character that the milestone cannot answer without knowing who they actually are.
-
----
-
-## Full Output Structure
-
-### Prologue specification *(if applicable)*
-*As described above, or marked absent.*
-
-### Starting situation
-A one-paragraph description of where the main narrative opens: the world's state (sketch only — Worldbuilding will develop it), the central figure(s)' position within it, and the specific instability already present. Not a scene — a situation. The room before the argument, not the argument itself.
-
-### Ending destination *(draft in Pass 1; may be refined in Pass 2)*
-1–2 sentences. The type of ending — the territory, not the location. Specific enough to orient; vague enough to be discovered. Test: *If we arrived somewhere slightly different, would it still feel like the story found its ending?*
-
-### Milestones *(draft in Pass 1; refined with character concepts in Pass 2)*
-2–4 milestones. Each described in 1–3 sentences: what kind of event or turning point, which forces are in play, what changes. Each tested for looseness — it must be reachable in at least three different ways. Each linked to one or more character slots (Pass 1) or conceived characters (Pass 2). Milestones are hypotheses; the Gardener principle applies.
-
-### Core conflict question *(draft in Pass 1; confirmed or revised in Pass 2)*
-One sentence. Genuinely open. About human stakes. Irreducible — not compound. The story's question, not one character's.
-
-### Compass notes
-What the compass leaves open: what about the ending is intentionally unspecified; what the milestones do not determine; which seed questions remain entirely open by design.
-
----
-
-## Boundary
-
-- **Does not** plot individual scenes, chapters, or sequences.
-- **Does not** outline the story.
-- **Does not** create character records — that is Character Creation's domain. Character slot sketches are inputs to Character Conception, not character records.
-- **Does not** build the world beyond what is minimally implied by the compass. Worldbuilding is a separate skill.
-- **Does not** lock the ending.
-- **Does not** invoke Character Conception directly — the main agent manages that invocation.
-- **Does not** update the World Bible directly. The main agent initialises Modules 2.3 and 2.4 from the final compass.
-
----
-
-## Invocation
-
-The main agent invokes Defining Rough Endpoints:
-
-- **Pass 1:** Once, immediately after Finding a Seed.
-- **Pass 2:** After Character Conception has returned concept documents for all character slots from Pass 1. The main agent passes the concepts back into this skill to produce the final compass.
-- **Reassess scenario:** If the Reassess Trigger fires and the compass itself is judged unsound, both passes are re-run with the original seed, original constraints, and a set of preservation constraints derived from already-written material.
-
----
-
-## World Bible Interface
-
-| Direction | Modules |
-|-----------|---------|
-| **Reads from** | Nothing (Pass 1 works from seed document; Pass 2 works from seed document + character concept documents) |
-| **Main agent writes to** | Module 2.3 — Plot Thread Registry (milestones as initial thread seeds); Module 2.4 — Pending Payoffs & Foreshadowing (milestones as early payoff seeds) |
-
----
-
-## Dependencies
-
-**Upstream:** **Finding a Seed** (required — validated seed document). Optionally: **Research Integration** (factual grounding for specific domains).  
-**Downstream (Pass 1):** Character slot sketches trigger **Character Conception** (early invocation mode) via the main agent.  
-**Downstream (Pass 2 / final):** Final compass is the primary input for **Worldbuilding**. Milestones initialise Modules 2.3 and 2.4, subsequently read by **Gardener Plotting System**, **Plot Thread Tracking**, and **Braided Narrative Technique**.
+> **Gardener principle:** Characters are not assigned to milestones — milestones are revised to fit the characters who have been conceived. If a conceived character's logic points away from a draft milestone, the character wins.
 
 ---
 
@@ -177,7 +215,7 @@ The main agent invokes Defining Rough Endpoints:
 
 #### Step 1 — Internalise the seed and constraints
 
-Read the seed, its questions, genre, and themes. The compass must feel like a genuine extension of the seed — not a framework imposed on it. Hold the genre constraints: an Epic Fantasy compass looks and feels different from a Hard SF compass or a Historical Fiction compass.
+Read the seed document from context. The compass must feel like a genuine extension of the seed — not a framework imposed on it. Hold the genre constraints: an Epic Fantasy compass looks and feels different from a Hard SF compass or a Historical Fiction compass.
 
 Ask: *What kind of story does this seed want to become? What would it mean for this seed to have found its story?*
 
@@ -214,9 +252,9 @@ One sentence. Genuinely open. About human stakes. Irreducible. Test: is this the
 
 Explicitly record what has been left open. Prevent the compass from hardening into an outline.
 
-#### Step 8 — Return Pass 1 output
+#### Step 8 — Return Pass 1 artifacts
 
-Return the full Pass 1 output to the main agent. The main agent invokes Character Conception for each character slot before returning to this skill for Pass 2.
+Return the full Pass 1 artifacts dict with `status: "success"`. The brain will delegate to `character_subagent` for each character slot before returning for Pass 2.
 
 ---
 
@@ -224,13 +262,13 @@ Return the full Pass 1 output to the main agent. The main agent invokes Characte
 
 #### Step 9 — Receive character concept documents
 
-The main agent provides one character concept document per slot. Read each: role, core contradiction, one-paragraph sketch, open questions.
+The brain provides `character_concepts` in context — one document per slot. Read each: role, core contradiction, one-paragraph sketch, open questions.
 
 #### Step 10 — Revise milestones using character logic
 
 For each draft milestone, ask: *Given who this character actually is — their core contradiction, desire, fear, and response patterns — does this milestone still make sense? Does the character's psychology support it, complicate it, or make it implausible?*
 
-If the character's concept reveals that a draft milestone is implausible (the character would not be in this situation given who they are), revise the milestone to fit the character. If the character's concept reveals that the milestone is less interesting than a different milestone that follows naturally from who this character is, replace it.
+If the character's concept reveals that a draft milestone is implausible, revise the milestone to fit the character. If the character's concept reveals that the milestone is less interesting than a different milestone that follows naturally from who this character is, replace it.
 
 The Gardener principle applies: the character wins over the plan.
 
@@ -238,33 +276,38 @@ The Gardener principle applies: the character wins over the plan.
 
 Does the story's question still hold now that key characters have been conceived? Does a character's core contradiction sharpen or reframe it? Revise if necessary.
 
-#### Step 12 — Return the final compass
+#### Step 12 — Build KG-ready persistence records
 
-Return the complete final compass (prologue specification if applicable, starting situation, ending destination, milestones with character references, core conflict question, compass notes) to the main agent. The main agent writes Modules 2.3 and 2.4.
+Construct `plot_thread_seeds` and `payoff_seeds` arrays from the finalised milestones, structured as KG node records ready for `story_state_manager` to insert.
+
+#### Step 13 — Return Pass 2 artifacts
+
+Return the complete final compass artifacts dict with `status: "success"`. The brain routes the KG-ready records to `story_state_manager` for persistence.
 
 ---
 
 ## Example
 
-For a worked example of input and output, see [examples.md](examples.md).
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ---
 
 ## Quality Checks
 
-Before returning Pass 1 output, verify:
+### Pass 1 — before returning
 
-- [ ] Prologue determination is explicit — warranted with specification, or marked absent with reason.
+- [ ] Prologue determination is explicit — warranted with specification, or absent with reason.
 - [ ] Each draft milestone has at least one character slot sketch.
 - [ ] Character slot sketches are structured for Character Conception early invocation — role, implied contradiction, stakes, world context, open questions.
 - [ ] Milestones are 2–4; each is reachable in at least three different ways.
 - [ ] Core conflict question is one sentence, genuinely open, about human stakes.
 - [ ] Compass notes record what has been left open.
 
-Before returning Pass 2 (final) output, additionally verify:
+### Pass 2 — additionally
 
 - [ ] Each milestone has been reviewed against its conceived character's logic.
 - [ ] Any milestone the character concept makes implausible has been revised or replaced.
 - [ ] Gardener principle honoured — characters revised milestones, not the other way around.
-- [ ] No World Bible writes specified in the skill.
+- [ ] `plot_thread_seeds` and `payoff_seeds` are structured as valid KG node records.
+- [ ] No Story State KG writes from this skill — records in artifacts for story_state_manager.
 - [ ] No scenes, chapters, or plot sequences produced.

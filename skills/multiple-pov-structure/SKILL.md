@@ -1,175 +1,218 @@
 ---
 name: multiple-pov-structure
-description: Manages POV assignment across chapters — determining which POV character narrates next, the rotation logic across the cast, and the synchronisation of simultaneous events across POV timelines. Invoked by the main agent when a POV rotation decision is needed. Outputs scheduling data only; does not write scenes or determine pacing.
+description: Manages POV assignment across chapters — determining which POV character narrates next, the rotation logic across the cast, and the synchronisation of simultaneous events across POV timelines. Queries Story State KG directly for the POV chapter log and absolute timeline. Returns a POV chapter schedule in artifacts. Invoked by the plotting_subagent when the brain delegates a POV rotation decision.
 ---
 
 # Multiple POV Structure
 
 ## Identity
 
-**Purpose:** Decide which POV character narrates the next chapter and why — based on story logic, timeline synchronisation, and narrative momentum — and surface any simultaneous events across other POV timelines that the assignment must account for. The decision must serve the story, not a mechanical rotation schedule.
+**Purpose:** Decide which POV character narrates the next chapter and why — based on story logic, timeline synchronisation, and narrative momentum — and surface any simultaneous events across other POV timelines that the assignment must account for.
+
+> **Sibling skill:** When the user has already specified which POV character narrates next, invoke `single-pov-structure` instead of this skill. The two are mutually exclusive for any given chapter boundary.
 
 ---
 
 ## Core
 
-Manage POV assignment across chapters, rotation logic, and synchronisation of simultaneous events across POV timelines. Output a POV chapter schedule — which POV is next, the reasoning, and what simultaneous events across other storylines must be kept in view. Does not write scenes. Does not determine pacing.
+Manage POV assignment across chapters, rotation logic, and synchronisation of simultaneous events across POV timelines. Return a POV chapter schedule — which POV is next, the reasoning, and what simultaneous events across other storylines must be kept in view. Does not write scenes. Does not determine pacing.
 
 ---
 
 ## Input
 
-The main agent provides:
+### From brain context (`worker_request.context`)
 
-1. **World Bible excerpt — Module 2.2 (POV Chapter Log):** The full log of chapters written so far — POV assignments, locations, scene summaries, cliffhanger status, connections to other storylines, and chapter deltas. This is the primary record for rotation analysis.
+1. **`chapter_context`** — Current chapter number. Used to scope all KG queries. Required.
+2. **`endpoint_compass`** (optional) — The milestones from `defining-rough-endpoints`. Passed by the brain when approaching a narrative milestone, to check whether the next POV assignment is moving toward or away from it.
+3. **`active_thread_ids`** (optional) — List of PlotThread `logical_id` strings the brain wants convergence pressure assessed against. If omitted, the skill queries active threads directly.
 
-2. **World Bible excerpt — Module 2.1 (Absolute Timeline):** Current timeline state — dates and day counts, simultaneous events, travel records, and seasonal/weather state per region. Essential for synchronising events happening at the same time across different POV locations.
+### Fetched from Story State KG
 
-3. *(Optional)* **Current endpoint compass** — the milestones from Defining Rough Endpoints, if the main agent wants to check whether the next POV assignment is moving toward or away from a narrative milestone. Useful when the story is approaching a convergence point.
+The plotting_subagent queries the Story State KG directly:
 
-4. *(Optional)* **World Bible excerpt — Module 2.3 (Plot Thread Registry):** Active thread statuses, including convergence windows. Useful when a thread is approaching its payoff window and a specific POV is needed to deliver it.
+```
+# Full POV chapter log — all chapters written so far
+query_kg_nodes({type: "Chapter"},
+               as_of_chapter=chapter_context)
 
-> **Note:** This skill receives excerpts from the main agent. It does not access the World Bible directly.
+# Absolute timeline — dates, simultaneous events, travel records
+query_kg_nodes({type: "Event",
+                "properties.is_historical": false},
+               as_of_chapter=chapter_context)
+
+# All POV-eligible characters — for rotation analysis
+query_kg_nodes({type: "Character",
+                "properties.pov_eligible": true},
+               as_of_chapter=chapter_context)
+
+# Active and approaching plot threads — for convergence pressure
+query_kg_nodes({type: "PlotThread",
+                "properties.status": {"$in": ["Active", "Dormant"]}},
+               as_of_chapter=chapter_context)
+
+# Location travel times — for timeline contradiction checking
+query_kg_edges({type: "CONNECTED_TO"}, as_of_chapter=chapter_context)
+```
+
+Sort Chapter nodes by `properties.chapter_number` after retrieval to reconstruct the chapter log in order. If no Chapter nodes exist (first chapter of the novel), proceed with empty log — this is expected.
 
 ---
 
 ## Output
 
-**POV chapter schedule** — a structured document containing:
+All output is returned in `artifacts`. The POV chapter schedule is analysis output — no KG persistence needed. The brain passes the recommended POV character ID as context in the next `plotting_subagent` (`gardener-plotting-system`) delegation.
 
-1. **Recommended next POV** — which character narrates the next chapter, stated definitively.
+### `artifacts` structure
 
-2. **Reasoning** — the specific logic that produces this recommendation, drawn from the POV Chapter Log, the timeline, and any active thread pressures. The reasoning must be narrative, not mechanical: not "it is Character B's turn in the rotation" but "Character B's storyline has reached the moment where the next event must be shown from their perspective because [specific reason]."
+```json
+{
+  "recommended_next_pov": {
+    "character_id": "char_<slug>",
+    "character_name": "<full name>",
+    "reasoning": "<specific narrative reasoning — not 'it is their turn'>",
+    "last_appeared_chapter": 0,
+    "chapters_since_last_pov": 0
+  },
+  "simultaneous_events": [
+    {
+      "character_id": "char_<slug>",
+      "event_description": "<what is happening to this character at the same story time>",
+      "pov_can_know": false,
+      "dramatic_irony_active": true,
+      "timeline_contradiction_risk": false,
+      "note": "<what the next chapter must account for>"
+    }
+  ],
+  "rotation_pressure_flags": [
+    {
+      "character_id": "char_<slug>",
+      "character_name": "<n>",
+      "pressure_level": "Low | Medium | High",
+      "reason": "<why this character's storyline needs attention soon>"
+    }
+  ],
+  "cliffhanger_handling": {
+    "previous_chapter_cliffhanger": false,
+    "cliffhanger_description": null,
+    "recommendation": "return_immediately | cut_away",
+    "reasoning": "<why this choice>"
+  },
+  "pov_proliferation_check": {
+    "current_active_pov_count": 0,
+    "new_pov_proposed": false,
+    "governing_constraint_met": null,
+    "note": "<if a new POV is being considered, assessment against the governing constraint>"
+  },
+  "kg_context_used": {
+    "chapter_nodes_found": 0,
+    "pov_characters_found": 0,
+    "active_threads_found": 0
+  }
+}
+```
 
-3. **Simultaneous events to account for** — a list of events occurring at the same time in other POV timelines during the chapter being planned. For each:
-   - Which POV character is it happening to?
-   - What is the event?
-   - Does the next chapter need to acknowledge it (because the POV character could plausibly know about it), or is it occurring out of reach of their knowledge?
-   - Is there a risk of timeline contradiction if the next chapter advances time without accounting for this event?
+`simultaneous_events` is the most important field for the `writing_subagent`. Each entry tells the brain — and subsequently the scene construction — whether the POV character can plausibly know about a concurrent event, whether dramatic irony is active, and whether there is a timeline contradiction risk if the chapter advances time without acknowledging it.
 
-4. **Rotation pressure flags** — characters whose storylines are accumulating pressure that will require a POV chapter soon. Not a schedule — a flag. Helps the main agent anticipate upcoming rotation decisions.
-
-5. **Cliffhanger handling** — if the previous chapter ended on a cliffhanger (as logged in Module 2.2), a recommendation on whether to resolve it immediately (return to the same POV next) or delay it (cut away to another POV, building tension before returning). This is a narrative judgment, not a rule.
-
-6. **POV proliferation check** — a flag if the story is approaching the point where a new POV might be proposed. Reminds the main agent of the governing constraint: a new POV character is only warranted if it provides a genuinely unique perspective — geographic, factional, psychological — unavailable from any existing POV. This check does not approve or reject new POVs; it surfaces the question for the main agent.
+`cliffhanger_handling` is always populated, even when `previous_chapter_cliffhanger` is `false` (in that case, the recommendation field is `null`).
 
 ---
 
 ## Boundary
 
-- **Does not** write scenes or chapter content of any kind.
-- **Does not** determine pacing. Pacing is a separate skill.
-- **Does not** generate scene parameters. That is Gardener Plotting System's domain; this skill tells the main agent whose scene to generate next.
-- **Does not** audit narrative braiding or thread-level convergence in depth. Braided Narrative Technique handles that analysis. This skill flags convergence pressure but does not analyse it.
-- **Does not** approve or create new POV characters. It surfaces the question of POV proliferation; the main agent makes the decision.
-- **Does not** update the World Bible. Output is scheduling data returned to the main agent.
+- **Does not** write scenes or chapter content.
+- **Does not** determine pacing.
+- **Does not** generate scene parameters. That is `gardener-plotting-system`.
+- **Does not** audit narrative braiding in depth. That is `braided-narrative-technique`.
+- **Does not** approve or create new POV characters — surfaces the question via `pov_proliferation_check`; the brain makes the decision.
+- **Does not** write to the Story State KG. Output is scheduling data only.
 
 ---
 
 ## Invocation
 
-The main agent invokes Multiple POV Structure:
+The `plotting_subagent` invokes this skill when the brain delegates a POV rotation decision — typically at every chapter boundary, before `gardener-plotting-system` is delegated for the next chapter.
 
-- Whenever a POV rotation decision is needed — typically at every chapter boundary, before Gardener Plotting System is invoked for the next chapter.
-- When the story's structure feels unclear about whose perspective should carry the next significant event.
-- When a simultaneous-events synchronisation question arises: two things are happening at the same time in different locations, and it is unclear in what order they should be rendered.
-
-**Standard chapter-boundary invocation sequence:**  
-`[Previous chapter complete] → Multiple POV Structure → Gardener Plotting System (for the assigned POV) → Scene Construction`
-
-> **Sibling skill:** When the human user has already specified which POV character narrates the next chapter, invoke [single-pov-structure](../single-pov-structure/SKILL.md) instead of this skill. Single POV Structure accepts the user's assignment as given, validates it, and produces the same scheduling output. Multiple POV Structure and Single POV Structure are mutually exclusive for any given chapter boundary.
+**Standard chapter-boundary delegation sequence (brain-level):**
+`plotting_subagent (multiple-pov-structure)` → `plotting_subagent (gardener-plotting-system)` → `[writing_subagent]`
 
 ---
 
-## World Bible Interface
+## Story State Interface
 
-| Direction | Modules |
-|-----------|---------|
-| **Reads from** (as excerpts provided by main agent) | Module 2.2 (POV Chapter Log), Module 2.1 (Absolute Timeline). Optionally: Module 2.3 (Plot Thread Registry), endpoint compass. |
-| **Main agent writes to** | Nothing — scheduling data is returned to the main agent; no World Bible update occurs from this skill's output. |
+| Direction | Details |
+|---|---|
+| **Queries from Story State KG** | Chapter nodes (full POV chapter log, sorted by chapter number); non-historical Event nodes (absolute timeline); POV-eligible Character nodes; active and dormant PlotThread nodes; CONNECTED_TO edges (travel times for timeline contradiction checking) |
+| **Returns in artifacts** | POV chapter schedule — recommended POV character, simultaneous events, rotation pressure flags, cliffhanger handling, POV proliferation check. No KG persistence needed; brain passes `recommended_next_pov.character_id` to `gardener-plotting-system` |
 
 ---
 
 ## Dependencies
 
-**Upstream:** Module 2.2 and Module 2.1 must be updated after the previous chapter before this skill is invoked. Optionally: **Plot Thread Tracking** output (if a recent thread status report is available, the main agent may pass convergence window data alongside the Module 2.3 excerpt).  
-**Downstream:** The recommended next POV is passed to **Gardener Plotting System**, which generates scene parameters for that character. Braided Narrative Technique uses Module 2.2 for deeper convergence analysis when needed.
+**Upstream:** Chapter nodes and Character nodes must be current in Story State KG. Brain provides `chapter_context`.
+
+**Downstream:** `recommended_next_pov.character_id` is passed by the brain as `pov_character_id` in the subsequent `gardener-plotting-system` delegation. `simultaneous_events` and `cliffhanger_handling` are passed as context so `gardener-plotting-system` and `scene-construction` can account for timeline constraints.
 
 ---
 
 ## Instructions
 
-### Step 1 — Map the current state of all POV storylines
+### Step 1 — Query the Story State KG
 
-Read the full POV Chapter Log (Module 2.2). For each active POV character, establish:
-- When did they last narrate a chapter?
-- Where did their storyline end — what was their chapter's last state?
-- Was there a cliffhanger? If so, is it pending resolution?
-- What connections were flagged to other POV storylines in their chapter delta?
-- How many chapters have they narrated in total, and what is the rough cadence of their appearances?
+Run all specified queries at `as_of_chapter = chapter_context`. Sort Chapter nodes by `properties.chapter_number` to reconstruct the chapter log. Populate `kg_context_used`.
+
+If no Chapter nodes exist, this is the first chapter of the novel. The chapter log is empty — proceed to POV selection using character information only.
+
+### Step 2 — Map the current state of all POV storylines
+
+From the Chapter nodes, establish for each POV-eligible Character node:
+- When did they last narrate a chapter? (`properties.last_pov_chapter`)
+- How many chapters total? (`properties.pov_chapter_count`)
+- What was the last chapter's cliffhanger status?
+- What storyline connections were flagged in the chapter delta?
 
 This map is the baseline for rotation reasoning.
 
-### Step 2 — Synchronise the timeline
+### Step 3 — Synchronise the timeline
 
-Read the Absolute Timeline (Module 2.1). Establish:
-- What is the current story date for each active POV character?
-- Are any events happening simultaneously in different POV locations?
-- Are any travel records creating timeline constraints — characters who should have arrived somewhere, or who are en route?
-- Is there a risk of timeline contradiction if the next chapter advances time without accounting for a simultaneous event?
+From non-historical Event nodes, establish:
+- The current story date for each active POV character.
+- Events happening simultaneously in different POV locations.
+- Travel records creating timeline constraints — characters who should have arrived somewhere, or who are en route. Cross-check with CONNECTED_TO edge travel times.
+- Whether any simultaneous event creates a contradiction risk if the next chapter advances time without acknowledging it.
 
-Timeline synchronisation is non-negotiable. If two POV characters are experiencing events at the same time in different locations, the order in which those events are rendered on the page matters — both for reader knowledge management and for dramatic irony — but neither can simply not happen.
+Populate `simultaneous_events` for all concurrent events, noting for each whether the chosen POV character could plausibly know about it and whether dramatic irony is active.
 
-### Step 3 — Apply rotation logic
+### Step 4 — Apply rotation logic
 
-Rotation in a multi-POV story is not a mechanical schedule. It is a narrative judgment. Apply the following in order of priority:
+Rotation is a narrative judgment, not a mechanical schedule. Apply in priority order:
 
-**Priority 1 — Narrative necessity:** Is there a specific POV whose storyline has reached a moment that must be shown now? A consequence that has arrived, a revelation that is about to occur, a choice that cannot be deferred? If yes, that POV is next regardless of rotation cadence.
+**Priority 1 — Narrative necessity:** Is there a specific POV whose storyline has reached a moment that must be shown now? A consequence that has arrived, a revelation about to occur, a choice that cannot be deferred? If yes, that POV is next regardless of rotation cadence.
 
-**Priority 2 — Cliffhanger logic:** Did the previous chapter end on a cliffhanger? The decision to return immediately or cut away is a narrative choice:
-- **Return immediately** when the cliffhanger's tension is so acute that cutting away would feel arbitrary rather than purposeful, or when the reader needs resolution to be able to hold what comes next.
-- **Cut away** when the delay will build productive tension — when the reader's suspense about the cliffhanger makes the intervening chapter more charged — and when the intercut POV has something genuinely urgent of its own to show.
-Never cut away from a cliffhanger simply to impose structure. The cut must be motivated.
+**Priority 2 — Cliffhanger logic:**
+- **Return immediately** when the cliffhanger's tension is so acute that cutting away would feel arbitrary rather than purposeful.
+- **Cut away** when the delay will build productive tension — when the intercut POV has something genuinely urgent to show — and when the cut is motivated, not structural.
+Never cut away from a cliffhanger simply to impose structure.
 
-**Priority 3 — Information management:** Is there a POV character whose perspective would give the reader knowledge that should arrive before, after, or simultaneously with what other POVs reveal? The order in which reader knowledge accumulates is a structural tool. Use it deliberately.
+**Priority 3 — Information management:** Is there a POV whose perspective would give the reader knowledge that should arrive before, after, or simultaneously with what other POVs reveal? The order in which reader knowledge accumulates is a structural tool.
 
-**Priority 4 — Rotation pressure:** Which POV character has the most accumulated narrative pressure — the most urgent unanswered questions, the most active consequence chains, the most threads approaching convergence? This is not a tiebreaker of last resort; it is the default when no higher priority applies.
+**Priority 4 — Rotation pressure:** Which POV character has the most accumulated narrative pressure — the most urgent unanswered questions, the most active consequence chains, the most threads approaching convergence? Check `active_thread_flags` for this.
 
-**Priority 5 — Cadence and reader relationship:** How long has it been since the reader was in a given POV character's head? If a POV has been absent for many chapters, re-establishing it requires some re-anchoring — the reader needs to re-enter the character's voice and situation. This is a cost that must be weighed against the narrative benefit of returning to that POV now.
+**Priority 5 — Cadence and reader relationship:** How long has a given POV been absent? A POV absent for many chapters requires extra re-anchoring at the chapter opening. Note this in the recommendation reasoning so `scene-construction` accounts for it.
 
-### Step 4 — Identify simultaneous events
+### Step 5 — Check POV proliferation
 
-For every event logged in Module 2.1 as occurring simultaneously with events in the chosen POV's upcoming chapter:
+Count current POV-eligible characters with `pov_chapter_count > 0`. If a new POV is being considered (a character with `pov_eligible: true` but `pov_chapter_count = 0`), assess against the governing constraint: a new POV is only warranted if it provides a perspective — geographic, factional, psychological — genuinely unavailable from any existing POV. Populate `pov_proliferation_check`.
 
-- Determine whether the chosen POV character could plausibly know about it (are they in the same location? have they received word?).
-- If they could know: the scene parameters for the next chapter must account for this knowledge.
-- If they could not know: the event is running in parallel, off-page. Flag it for the main agent so that the subsequent POV chapter (when it arrives) can render it from the correct temporal position.
-- If the simultaneous event creates a potential timeline contradiction with the chosen chapter: flag it for the main agent to resolve before writing begins.
+### Step 6 — Assemble and return artifacts
 
-### Step 5 — Flag rotation pressures
-
-Survey the full cast of active POV characters. For each, note whether their storyline pressure is:
-- **Low** — their last chapter ended at a relative pause; they can wait.
-- **Medium** — their storyline has accumulated some pressure; they should appear within the next few chapters.
-- **High** — their storyline has reached a point where delay will create structural problems: consequences will arrive off-page, threads will lapse past their convergence window, or reader relationship to the character will weaken from absence.
-
-Return these flags to the main agent. Do not assign chapter numbers — just flag the pressure level and the reason.
-
-### Step 6 — POV proliferation check
-
-Count the current number of active POV characters. If:
-- A new POV is being considered, confirm the governing constraint: a new POV is only warranted if it provides a perspective — geographic, factional, psychological — genuinely unavailable from any existing POV. Surface this question for the main agent without ruling on it.
-- The current POV count is high enough that the rotation period for each POV character is becoming long (readers are spending many chapters away from any given character), flag this as a structural pressure. It does not require action immediately, but it should be tracked.
-
-### Step 7 — Assemble and return the POV chapter schedule
-
-Return the complete scheduling document to the main agent. The main agent passes the recommended POV to Gardener Plotting System for scene parameter generation.
+Return the complete artifacts dict with `status: "success"`. Ensure `recommended_next_pov.reasoning` contains specific narrative logic, not generic rotation justification.
 
 ---
 
 ## Example
 
-For a worked example of input and output, see [examples.md](examples.md).
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ---
 
@@ -177,10 +220,12 @@ For a worked example of input and output, see [examples.md](examples.md).
 
 Before returning output, verify:
 
-- [ ] Recommended POV is stated definitively with specific narrative reasoning — not "it's their turn."
-- [ ] Simultaneous events are mapped and cross-referenced against what the chosen POV character can plausibly know.
-- [ ] Cliffhanger handling is explicit and reasoned — not defaulted.
-- [ ] Rotation pressure flags are present for all active POV characters.
-- [ ] POV proliferation check is present.
-- [ ] No scenes written, no scene parameters generated, no pacing determined.
-- [ ] No World Bible writes specified.
+- [ ] `recommended_next_pov.reasoning` is specific narrative logic — not "it is their turn."
+- [ ] `simultaneous_events` array is populated for all concurrent events found in Event nodes (or empty array with reason if timeline is empty).
+- [ ] Each simultaneous event has `pov_can_know`, `dramatic_irony_active`, and `timeline_contradiction_risk` populated.
+- [ ] `cliffhanger_handling` is always present — `previous_chapter_cliffhanger: false` with null recommendation if no cliffhanger.
+- [ ] `rotation_pressure_flags` covers all POV-eligible characters.
+- [ ] `pov_proliferation_check` is present.
+- [ ] `kg_context_used` is populated with actual query result counts.
+- [ ] No scenes written. No scene parameters generated. No pacing determined.
+- [ ] No Story State KG writes from this skill.

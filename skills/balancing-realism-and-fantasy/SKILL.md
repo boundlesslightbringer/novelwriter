@@ -1,26 +1,20 @@
 ---
 name: balancing-realism-and-fantasy
-description: >
-  Audits a completed chapter or flagged scene against the realism-fantasy calibration
-  checklist — covering political realism, magic system consistency, violence framing,
-  dark content justification, and tonal consistency. Returns a structured audit report
-  with specific flags and recommended adjustments. The main agent invokes this skill when
-  tone, magic use, or dark content has been flagged as a concern, or as a periodic audit
-  after significant chapters. Does not rewrite; flags and recommends only.
+description: Audits a completed chapter or flagged scene against the realism-fantasy calibration checklist — covering political realism, magic system consistency, violence framing, dark content justification, and tonal consistency. Queries Story State KG directly for the magic system state and relevant world state records. Returns a structured audit report in artifacts with specific flags and recommended adjustments. Does not rewrite. Invoked when tone, magic use, or dark content has been flagged as a concern, or as a periodic audit after significant chapters.
 ---
 
-# Skill: Balancing Realism and Fantasy
+# Balancing Realism and Fantasy
 
 ## Identity
 
-**Skill name:** Balancing Realism and Fantasy  
-**Group:** 5 – Consequence & Realism  
-**Subagent:** Consequence Subagent  
-**When to invoke:** Called by the main agent when any of the following is true:
+**Skill name:** `balancing-realism-and-fantasy`
+**Group:** 5 — Consequence & Realism
+**Subagent:** consequence_subagent
+**When to invoke:** Called by the `consequence_subagent` when the brain delegates a realism audit after any of the following:
 - Tone in a completed chapter feels inconsistent with the established register.
 - Magic is used in a way that may violate established system limits or inflate prevalence.
 - A violent or dark scene has been drafted and needs calibration against justification criteria.
-- The main agent has flagged a scene or chapter as a potential realism-fantasy balance concern.
+- The brain has flagged a scene or chapter as a potential realism-fantasy balance concern.
 - Periodic audit requested after a chapter of high consequence (major battle, large-scale magic, significant death).
 
 This skill is an **audit tool**, not a writing tool. It is never invoked mid-scene.
@@ -29,269 +23,286 @@ This skill is an **audit tool**, not a writing tool. It is never invoked mid-sce
 
 ## Core
 
-Audit a completed chapter or flagged scene against five calibration dimensions:
-
-1. **Political realism** — do power structures, faction behaviour, and human motivation follow plausible logic?
-2. **Magic prevalence and consistency** — does magic use conform to established capabilities, limits, and costs?
-3. **Violence framing** — is violence rendered with consequence and weight, not as spectacle?
-4. **Dark content justification** — does darkness (cruelty, suffering, moral horror) serve the story, or is it gratuitous?
-5. **Tonal consistency** — does the chapter's register match the novel's established tone?
-
-Return a structured audit report with specific flagged passages and recommended adjustments. The main agent decides whether to act on the flags.
+Audit a completed chapter or flagged scene against five calibration dimensions: political realism, magic prevalence and consistency, violence framing, dark content justification, and tonal consistency. Return a structured audit report with specific flagged passages and recommended adjustments. The brain applies the quality gate and decides whether to re-delegate `scene-construction` or accept the chapter.
 
 ---
 
 ## Input
 
-The main agent provides:
+### From brain context (`worker_request.context`)
 
-| Input | Description |
-|---|---|
-| **Chapter or scene draft** | The completed text to be audited. The main agent specifies whether this is a full chapter or a flagged scene excerpt. |
-| **Module 3.5 excerpt** | Magic System State — confirmed capabilities, confirmed limits, confirmed costs, current prevalence, and recent magical events (with chapter references). |
-| **Module 3.1–3.4 excerpt** | World State — political/power map, geography relevant to the scene, cultures/religion, history/legends as applicable to the content being audited. The main agent provides only the modules relevant to what the chapter contains; if no magic appears, Module 3.5 is not required. |
-| **Tone reference (optional)** | A brief note from the main agent on the established tonal register, if not inferable from the World State excerpts — e.g., "the novel is operating in a low-fantasy, high-political-realism register." |
+1. **`chapter_or_scene_draft`** — The completed text to be audited. Required.
+2. **`chapter_context`** — The chapter number being audited. Used to scope all KG queries. Required.
+3. **`audit_scope`** — `"full_chapter"` or `"flagged_scene"`. When `"flagged_scene"`, the brain also passes `scene_description` identifying which scene within a chapter is the concern. Required.
+4. **`tone_reference`** (optional) — A brief note from the brain on the established tonal register if not inferable from Story State records (e.g. `"low fantasy, high political realism, earned darkness"`). When absent, the skill infers register from the world state records retrieved from KG.
+5. **`pov_character_id`** (optional) — The `logical_id` of the POV character for the scene, if the audit requires character-level psychological checks (e.g. assessing whether the POV character's response to violence is consistent with their psychology).
+
+### Fetched from Story State KG
+
+The consequence_subagent queries the Story State KG directly for all world state and character records needed to calibrate the audit:
+
+```
+# Magic system state — required for Dimension 2 audit
+query_kg_nodes({type: "MagicSystem"},
+               as_of_chapter=chapter_context)
+
+# Political and power map — required for Dimension 1 audit
+query_kg_nodes({type: "Faction"},
+               as_of_chapter=chapter_context)
+query_kg_nodes({type: "Location"},
+               as_of_chapter=chapter_context)
+
+# Cultures — for tonal register inference (Dimension 5)
+query_kg_nodes({type: "Culture"},
+               as_of_chapter=chapter_context)
+
+# POV character psychological record — for Dimension 3 (violence framing)
+# Only if pov_character_id is provided in context
+query_kg_nodes({logical_id: pov_character_id, type: "Character"},
+               as_of_chapter=chapter_context)
+
+# Recent magical events — from Chapter nodes, to assess prevalence
+# (magic events are referenced in Chapter node properties or
+# MagicSystem node's recent_magical_events field)
+query_kg_nodes({type: "Chapter",
+                "properties.chapter_number": {"$gte": chapter_context - 5}},
+               as_of_chapter=chapter_context)
+```
+
+If the MagicSystem node is not found (no magic exists in this story), mark Dimension 2 as `"Not applicable"` and proceed. If no Faction or Location nodes are found, note the absence and assess Dimension 1 from what the draft itself establishes.
 
 ---
 
 ## Output
 
-A structured **Balance Audit Report** with five sections — one per calibration dimension. Each section contains:
-- **Status:** Pass / Flag / Concern (Pass = no issues; Flag = specific issue requiring attention; Concern = borderline, noted for awareness)
-- **Flagged passages:** Specific text excerpts or line-level references where issues appear.
-- **Description of the issue:** What specifically is miscalibrated and why.
-- **Recommended adjustment:** A concrete editorial direction (not rewritten prose). The main agent decides whether to act.
+All output is returned in `artifacts`. The audit report is pure analysis — no KG persistence needed. However, if the audit identifies a new magic capability or unexplained phenomenon in the draft, the brain may route a `story_state_manager` update to add it to the MagicSystem node's records.
 
-If a dimension has no issues, the section is brief: Status = Pass, no further content.
+### `artifacts` structure
 
-The report closes with a **Priority Summary**: a ranked list of flags (high / medium / low priority) for the main agent's attention.
+```json
+{
+  "audit_header": {
+    "chapter_context": 0,
+    "audit_scope": "full_chapter | flagged_scene",
+    "pov_character_audited": "char_<slug> | null"
+  },
+  "dimension_reports": {
+    "political_realism": {
+      "status": "Pass | Flag | Concern",
+      "flagged_passages": [
+        {
+          "text_reference": "<offending sentence or passage, quoted>",
+          "issue_description": "<what specifically is miscalibrated and why>",
+          "recommended_adjustment": "<concrete editorial direction — not rewritten prose>"
+        }
+      ]
+    },
+    "magic_prevalence_and_consistency": {
+      "status": "Pass | Flag | Concern | Not applicable",
+      "magic_acts_in_chapter": 0,
+      "current_prevalence_level": "Rare | Increasing | Decreasing | Stable | Not applicable",
+      "flagged_passages": []
+    },
+    "violence_framing": {
+      "status": "Pass | Flag | Concern",
+      "flagged_passages": []
+    },
+    "dark_content_justification": {
+      "status": "Pass | Flag | Concern",
+      "flagged_passages": []
+    },
+    "tonal_consistency": {
+      "status": "Pass | Flag | Concern",
+      "flagged_passages": []
+    }
+  },
+  "priority_summary": {
+    "high": ["<flag descriptions requiring immediate attention>"],
+    "medium": ["<concerns worth addressing before the next draft pass>"],
+    "low": ["<minor notes>"]
+  },
+  "magic_system_updates_recommended": [
+    {
+      "update_type": "add_confirmed_capability | add_confirmed_limit | add_unexplained_phenomenon",
+      "description": "<what should be added to the MagicSystem node>",
+      "justification": "<why this update is warranted — the magic act in the draft that warrants it>"
+    }
+  ],
+  "kg_context_used": {
+    "magic_system_found": true,
+    "faction_nodes_found": 0,
+    "culture_nodes_found": 0,
+    "pov_character_found": false
+  }
+}
+```
+
+`flagged_passages` entries contain: quoted text reference, issue description, and recommended adjustment. The recommended adjustment is an editorial direction — not rewritten prose. Each dimension has its own `flagged_passages` array, which is empty when `status` is `"Pass"`.
+
+`magic_system_updates_recommended` is populated when the audit identifies a magic act in the draft that represents either a new confirmed capability, a new confirmed limit, or a new unexplained phenomenon. These are recommendations to the brain, not automatic writes. The brain decides whether to route them to `story_state_manager` as `update_kg_node` calls on the MagicSystem node.
+
+`priority_summary` ranks all flags across all five dimensions in one consolidated view for the brain's quality gate.
 
 ---
 
-## Calibration Checklist: Five Dimensions
+## The Five Calibration Dimensions
 
-### Dimension 1: Political Realism
+### Dimension 1 — Political Realism
 
-The political world of the story must behave according to plausible human logic — not genre convention and not authorial convenience.
+The political world must behave according to plausible human logic — not genre convention and not authorial convenience.
 
 Check for:
-- **Faction behaviour:** Do political actors pursue their interests through means consistent with their established resources, alliances, and constraints? A lord with no army does not threaten war. A king with divided loyalties does not issue ultimatums he cannot enforce.
-- **Information realism:** Do characters act on information they plausibly have? Do they fail to act on information they plausibly lack? Political actors should not have perfect knowledge of their enemies' intentions.
-- **Consequence accountability:** Do political decisions carry realistic costs? Betrayals should create enemies. Public executions should produce fear and resentment, not just compliance. Marriages should create obligations, not just alliances.
-- **Motivation plausibility:** Are characters pursuing power, safety, legacy, or survival through means proportionate to their situation? Flag characters who act against their established interests without sufficient explanation.
+- **Faction behaviour:** Do political actors pursue their interests through means consistent with their established resources, alliances, and constraints from the Faction and Location nodes? A lord with no army does not threaten war. A king with divided loyalties does not issue ultimatums he cannot enforce.
+- **Information realism:** Do characters act on information they plausibly have? Do they fail to act on information they plausibly lack?
+- **Consequence accountability:** Do political decisions carry realistic costs?
+- **Motivation plausibility:** Are characters pursuing power, safety, legacy, or survival through means proportionate to their situation?
 - **No genre shortcuts:** Flag any moment where a political outcome occurs because the plot requires it rather than because the characters' actions and the world's logic produced it.
 
-### Dimension 2: Magic Prevalence and Consistency
+### Dimension 2 — Magic Prevalence and Consistency
 
-Magic must remain internally consistent with the established system recorded in Module 3.5.
-
-Check for:
-- **Capability creep:** Does any magical act in this chapter exceed what Module 3.5 lists as "Confirmed capabilities"? If yes, flag — either the capability needs to be added to the record (escalation) or the act needs to be adjusted.
-- **Limit violations:** Does any magical act contradict what Module 3.5 lists as "Confirmed limits"? This is a hard flag.
-- **Cost evasion:** Is magic used without the recorded costs being paid or acknowledged? If the cost is injury, exhaustion, or sacrifice, the prose must show it.
-- **Prevalence inflation:** Is magic appearing more frequently than the system's current prevalence level ("Rare / Increasing / Decreasing / Stable") would support? Multiple magical acts in a single chapter in a "Rare" system is a flag.
-- **Unexplained phenomena:** If a new magical event occurs that cannot be explained by the current system, flag it as an "Unexplained phenomenon" for the main agent to decide whether it is intentional system expansion or a continuity error.
-- **Reader disorientation:** Is magic used in a way that may confuse readers about what it can and cannot do, undermining the sense that the system has rules?
-
-### Dimension 3: Violence Framing
-
-Violence in the story is always consequential. It is never spectacle, never clean, and never cost-free.
+Magic must remain internally consistent with the MagicSystem node retrieved from Story State KG.
 
 Check for:
-- **Weight and consequence:** Does each act of violence carry physical and psychological weight? A sword fight should leave exhaustion, injury, and psychological residue — not just a resolved situation.
-- **Aftermath:** Is the aftermath of violence shown or acknowledged? A character who kills for the first time is not the same character afterward. A battle that kills hundreds should leave visible marks on the world.
-- **Spectacle without cost:** Flag any action sequence that reads as exciting but consequence-free — where violence is rendered for dramatic pleasure without grounding in what it actually costs the characters.
-- **Proportionality:** Is the level of violence depicted proportionate to what the scene requires to achieve its purpose? Gratuitous elaboration beyond narrative necessity is a flag.
-- **POV character response:** Is the POV character's emotional and physiological response to violence consistent with their psychology (Module 1.1) and prior experience with violence? A hardened soldier and a merchant's daughter experience the same battle differently.
+- **Capability creep:** Does any magical act exceed what `confirmed_capabilities` lists? If yes, flag — either the capability needs to be added (intentional expansion) or the act needs to be adjusted.
+- **Limit violations:** Does any magical act contradict `confirmed_limits`? Hard flag.
+- **Cost evasion:** Is magic used without the `confirmed_costs` being paid or acknowledged?
+- **Prevalence inflation:** Is magic appearing more frequently than the `prevalence` level supports? Count magic acts in the chapter against the prevalence level and recent magical events from the last 5 Chapter nodes.
+- **Unexplained phenomena:** If a new magical event cannot be explained by the current system, flag it as a new unexplained phenomenon — add to `magic_system_updates_recommended`.
 
-### Dimension 4: Dark Content Justification
+If no MagicSystem node exists, mark `status: "Not applicable"`.
 
-Darkness — cruelty, suffering, moral horror, degradation — is present in the story because it illuminates something true about the human condition or the world, not because it shocks.
+### Dimension 3 — Violence Framing
 
-Check for:
-- **Purposefulness:** Does each dark element (torture, atrocity, sexual violence, psychological cruelty, child death) serve a specific narrative, characterisation, or thematic purpose? Identify that purpose. If none can be identified, flag as potentially gratuitous.
-- **Consequence integrity:** Dark events have consequences. A character who commits atrocity is changed by it. A world that contains systemic cruelty is shaped by it. Flag dark content that occurs without consequence — it reads as decoration.
-- **Reader trust:** Is the darkness framed in a way that respects the reader? This means: not lingering for shock value, not aestheticising suffering, not presenting cruelty as entertaining spectacle. The question is not "is this dark?" but "is this dark in a way that asks something of the reader?"
-- **Tonal register:** Is the darkness consistent with the established register of the novel, or does it represent a sudden escalation that breaks tonal contract with the reader?
-
-### Dimension 5: Tonal Consistency
-
-The novel has an established tone — a particular relationship between irony and earnestness, between horror and hope, between intimacy and scale. Single chapters should not rupture that register.
+Violence is always consequential. It is never spectacle, never clean, and never cost-free.
 
 Check for:
-- **Register breaks:** Does this chapter suddenly adopt a different emotional register from what the novel has established? (e.g., comic levity in a chapter following established tragedy; nihilistic bleakness in a story that has maintained moral stakes)
-- **Voice consistency:** Does the prose register of this chapter match the prose register of surrounding chapters? Flagging here is about the authorial voice, not the POV character's voice (which should vary — that is POV Consistency Maintenance's domain).
-- **Thematic consistency:** Does the chapter advance, complicate, or interrogate the novel's core themes — or does it contradict them without apparent purpose?
+- **Weight and consequence:** Does each act of violence carry physical and psychological weight?
+- **Aftermath:** Is the aftermath of violence shown or acknowledged?
+- **Spectacle without cost:** Flag any action sequence that reads as exciting but consequence-free.
+- **Proportionality:** Is the level of violence depicted proportionate to what the scene requires?
+- **POV character response:** If `pov_character_id` is provided, is the POV character's response to violence consistent with their psychology from the Character node (`response_patterns`, `arc_stage`, experience with violence)?
+
+### Dimension 4 — Dark Content Justification
+
+Darkness — cruelty, suffering, moral horror, degradation — is present because it illuminates something true, not because it shocks.
+
+Check for:
+- **Purposefulness:** Does each dark element serve a specific narrative, characterisation, or thematic purpose? Identify that purpose. If none can be identified, flag as potentially gratuitous.
+- **Consequence integrity:** Dark events have consequences. Flag dark content that occurs without consequence.
+- **Reader trust:** Is the darkness framed in a way that respects the reader — not lingering for shock value, not aestheticising suffering?
+- **Tonal register:** Is the darkness consistent with the established register of the novel?
+
+### Dimension 5 — Tonal Consistency
+
+The novel has an established tone — a particular relationship between irony and earnestness, between horror and hope. Single chapters should not rupture that register.
+
+Check for:
+- **Register breaks:** Does this chapter suddenly adopt a different emotional register from what the novel has established?
+- **Voice consistency:** Does the prose register of this chapter match the prose register of surrounding chapters (authorial voice, not POV character voice)?
+- **Thematic consistency:** Does the chapter advance, complicate, or interrogate the novel's core themes — or contradict them without apparent purpose?
 - **Hope and agency:** GRRM's fiction is dark but not nihilistic. Characters exercise agency that matters even when they fail. Check that this chapter does not reduce characters to purely passive victims of authorial will without any meaningful choice being present.
-
----
-
-## Step-by-Step Instructions
-
-### Step 1: Read the Draft
-
-Read the full chapter or scene draft provided. Do not annotate yet. Form an initial impression of:
-- What the chapter is doing narratively.
-- Where it feels miscalibrated (instinct pass only at this stage).
-
-### Step 2: Audit Against Module 3.5 (if magic present)
-
-If any magical act occurs in the draft:
-- Compare each act against Module 3.5's Confirmed capabilities, Confirmed limits, and Confirmed costs.
-- Note the prevalence level and count magical acts in the chapter.
-- Record all findings for Dimension 2.
-
-If no magic appears in the draft, mark Dimension 2 as Pass and proceed.
-
-### Step 3: Audit Against Module 3.1–3.4 (political and world realism)
-
-Using the World State excerpts provided:
-- Check political acts and decisions against the power map and faction records.
-- Check character motivations against their established desires and constraints.
-- Check that information characters act on is information they plausibly have.
-- Record findings for Dimension 1.
-
-### Step 4: Audit Violence Framing (Dimension 3)
-
-Identify all acts of violence in the draft. For each:
-- Assess weight, aftermath, and POV character response against their Module 1.1 psychology (if the main agent provided that excerpt; if not, assess from what the prose itself establishes).
-- Flag spectacle-without-cost or consequence-free violence.
-
-### Step 5: Audit Dark Content (Dimension 4)
-
-Identify all dark content in the draft. For each element:
-- State what narrative, characterisation, or thematic purpose it serves.
-- If no purpose can be identified, flag as potentially gratuitous.
-- Check that all dark events carry consequences within the chapter or have a recorded consequence pending.
-
-### Step 6: Audit Tonal Consistency (Dimension 5)
-
-Assess the chapter's overall register against:
-- The tone reference provided by the main agent (or inferred from the World State).
-- Whether the chapter maintains the novel's established relationship between darkness and agency.
-
-### Step 7: Assemble the Audit Report
-
-For each dimension:
-- Assign Status (Pass / Flag / Concern).
-- For Flags and Concerns: provide the specific flagged passage or reference, the issue description, and the recommended adjustment.
-
-Close with the Priority Summary ranking all flags.
 
 ---
 
 ## Boundary
 
-This skill:
-- **Does not rewrite prose.** It flags and recommends only. All rewriting decisions rest with the main agent and are executed via Scene Construction, Layering History and Legend, or Self-Editing and Refinement.
-- **Does not update the World Bible directly.** It returns an audit report; the main agent decides what to act on and performs any World Bible updates (e.g., adding a new magic capability to Module 3.5 if the main agent decides the magical act was intentional expansion).
-- **Does not invoke other skills.** It does not call Scene Construction or Self-Editing and Refinement to implement its recommendations.
-- **Does not audit POV consistency or voice.** That is POV Consistency Maintenance (scene level) and POV Consistency Auditing (chapter level).
-- **Does not audit plot thread status or consequence completeness.** That is Plot Thread Tracking and Consequence Cascade Implementation.
-- **Does not operate mid-scene.** It audits completed drafts only.
+- **Does not rewrite prose.** Flags and recommends only. All rewriting decisions rest with the brain and are executed via `scene-construction`.
+- **Does not write to the Story State KG directly.** Returns `magic_system_updates_recommended` for the brain to route to `story_state_manager` if accepted.
+- **Does not invoke other skills.** Does not call `scene-construction` or any other skill to implement its recommendations.
+- **Does not audit POV consistency or voice.** That is `pov-consistency-maintenance`'s domain.
+- **Does not audit plot thread status or consequence completeness.** That is `plot-thread-tracking` and `consequence-cascade-implementation`'s domain.
+- **Does not operate mid-scene.** Audits completed drafts only.
 
 ---
 
-## World Bible Interface
+## Invocation
 
-| Direction | Modules |
+The `consequence_subagent` invokes this skill when the brain delegates a realism-fantasy calibration audit. This skill is not invoked after every scene — only when the brain has identified a specific concern or requests a periodic audit after a high-consequence chapter.
+
+---
+
+## Story State Interface
+
+| Direction | Details |
 |---|---|
-| **Main agent reads and provides as excerpts** | Module 3.5 (Magic System State — required if magic appears in the draft); Modules 3.1–3.4 (World State — relevant subsets only, as applicable to the chapter content) |
-| **Main agent writes from this skill's output** | Nothing directly written from audit output. The main agent may choose to update Module 3.5 (e.g., to add a new confirmed capability or unexplained phenomenon) based on the audit's findings. All such writes are the main agent's decision. |
+| **Queries from Story State KG** | MagicSystem node (required for Dimension 2); Faction and Location nodes (Dimension 1); Culture nodes (Dimension 5 tonal inference); Character node for POV character (Dimension 3, optional); recent Chapter nodes for magic prevalence tracking. All queried with `as_of_chapter` |
+| **Returns in artifacts** | Structured audit report across five dimensions; consolidated priority summary; `magic_system_updates_recommended` list for brain to route to `story_state_manager` if accepted. No direct KG writes from this skill |
 
 ---
 
 ## Dependencies
 
-**Upstream (what this skill consumes):**
-- Scene Construction — this skill audits completed scene or chapter drafts produced by Scene Construction.
-- Worldbuilding — the World State modules (3.1–3.5) this skill reads were initialised by Worldbuilding and have been maintained by the main agent since.
+**Upstream:** Completed chapter or scene draft required in context. MagicSystem, Faction, Location, and Culture nodes must be current in Story State KG. Brain provides `chapter_or_scene_draft`, `chapter_context`, and `audit_scope`.
 
-**Downstream (what consumes this skill's output):**
-- The main agent receives the audit report and decides whether to:
-  - Re-invoke Scene Construction to address flagged passages.
-  - Invoke Self-Editing and Refinement to address tonal or prose issues.
-  - Update Module 3.5 if a magic act represents intentional system expansion.
-  - Accept flagged items as intentional and proceed.
+**Downstream:** `priority_summary.high` items guide the brain's decision to re-delegate `scene-construction` with correction context or to accept and proceed. `magic_system_updates_recommended` items, if accepted by the brain, are routed to `story_state_manager` as `update_kg_node` calls on the MagicSystem node.
+
+---
+
+## Instructions
+
+### Step 1 — Query the Story State KG
+
+Run all relevant queries at `as_of_chapter = chapter_context`. Run only the queries relevant to the draft's content — if no magic appears in the draft, skip the MagicSystem query. Populate `kg_context_used`.
+
+### Step 2 — Read the draft with the records in view
+
+Read the chapter or scene draft. Simultaneously hold the Faction nodes, MagicSystem node, and other retrieved records in view. Form an initial impression of where the draft feels miscalibrated before applying the formal checklist.
+
+### Step 3 — Audit Dimension 1 (Political Realism)
+
+Using Faction and Location nodes as the reference standard, check each political act and decision in the draft against the established resources, alliances, and constraints. Flag any political outcome that occurs because the plot requires it rather than because the world's logic produced it.
+
+### Step 4 — Audit Dimension 2 (Magic Consistency)
+
+If the MagicSystem node was found and magic appears in the draft:
+- Count magic acts in the chapter.
+- Compare each act against `confirmed_capabilities`, `confirmed_limits`, and `confirmed_costs`.
+- Assess prevalence against the `prevalence` level and the last 5 chapters' magical events.
+- For any magic act not explainable by the current system, add to `magic_system_updates_recommended`.
+
+If no MagicSystem node exists or no magic appears, mark `status: "Not applicable"`.
+
+### Step 5 — Audit Dimension 3 (Violence Framing)
+
+Identify all acts of violence in the draft. For each, assess weight, aftermath, and — if `pov_character_id` provided — the POV character's response against their `response_patterns` from the Character node. Flag spectacle-without-cost or consequence-free violence.
+
+### Step 6 — Audit Dimension 4 (Dark Content)
+
+Identify all dark content in the draft. For each element, state what narrative, characterisation, or thematic purpose it serves. If no purpose can be identified, flag as potentially gratuitous. Check that all dark events carry consequences within the chapter or have a recorded consequence pending in the consequence ledger.
+
+### Step 7 — Audit Dimension 5 (Tonal Consistency)
+
+Assess the chapter's overall register against the tone reference (from context or inferred from Culture nodes and world state). Check that the chapter maintains the novel's established relationship between darkness and agency.
+
+### Step 8 — Compile and rank flags
+
+Across all five dimensions, identify all flags and concerns. Rank in `priority_summary`:
+- **High:** Hard continuity errors (magic limit violations, impossible political acts given established resources), significant tonal ruptures.
+- **Medium:** Dark content over-elaboration, spectacle-without-cost violence, borderline prevalence inflation.
+- **Low:** Minor tonal notes, concerns that read as intentional choices rather than errors.
+
+### Step 9 — Assemble and return artifacts
+
+Return the complete artifacts dict with `status: "success"`. Ensure `magic_system_updates_recommended` is present (even if empty array).
 
 ---
 
 ## Example
 
-### Input shape
-
-```
-Chapter 17 draft provided (Saerina POV — the siege of Ashford, first major battle scene).
-
-Module 3.5 excerpt:
-  Magic System State — Prevalence: Rare.
-  Confirmed capabilities: fire-starting at close range; compulsion of small animals; 
-    detection of deception within 10 feet.
-  Confirmed limits: cannot raise the dead; cannot affect weather.
-  Confirmed costs: each use requires 24 hours of physical exhaustion; 
-    cannot be used twice in one day.
-  Recent magical events: Saerina used compulsion (Ch. 11); Vorn used fire-starting (Ch. 14).
-
-Module 3.1 excerpt:
-  Power map — Ashford garrison: 400 soldiers, no cavalry, low on provisions.
-  Attacking force (House Drev): 1,100 soldiers, supply line intact, siege engines.
-  Lord Ashford: no formal alliances; has sent no word to neighboring houses.
-
-Tone reference: "Low fantasy, high political realism, earned darkness."
-```
-
-### Output shape (abbreviated)
-
-```
-BALANCE AUDIT REPORT — Chapter 17 (Saerina POV)
-
-DIMENSION 1: Political Realism — FLAG
-  Flagged passage: Paragraph 4 — Lord Ashford orders a cavalry charge.
-  Issue: Module 3.1 confirms no cavalry in the Ashford garrison. 
-    This act is impossible given established resources.
-  Recommended adjustment: Replace with an infantry sortie, or establish 
-    that Ashford has hidden cavalry reserves (requires World Bible update to 3.1).
-
-DIMENSION 2: Magic Prevalence and Consistency — CONCERN
-  Flagged passage: Paragraph 19 — Saerina uses compulsion, then 
-    fire-starting in the same scene.
-  Issue: Module 3.5 confirms magic cannot be used twice in one day. 
-    Using two abilities in the same battle violates established cost.
-  Recommended adjustment: Remove one magical act, or introduce the 
-    cost explicitly (Saerina collapses after the second use and is 
-    non-functional for the battle's remainder).
-
-DIMENSION 3: Violence Framing — PASS
-  Violence carries weight throughout; aftermath is shown; Saerina's 
-  inexperience with battlefield death is rendered through physiological 
-  response (shaking, tunnel vision). No spectacle-without-cost found.
-
-DIMENSION 4: Dark Content Justification — FLAG
-  Flagged passage: Paragraphs 31–34 — extended depiction of 
-    prisoners being executed after surrender.
-  Issue: The sequence runs four paragraphs. The narrative purpose 
-    (establishing House Drev's brutality) is achieved by paragraph 32. 
-    Paragraphs 33–34 continue without adding new information or 
-    emotional meaning. Risk of gratuitousness by elaboration.
-  Recommended adjustment: Cut to two paragraphs. The effect is 
-    stronger with less.
-
-DIMENSION 5: Tonal Consistency — PASS
-  Chapter maintains the established low-fantasy register. 
-  Saerina exercises meaningful agency (her choice at the gate 
-  matters) despite the outcome being defeat. No register break found.
-
-PRIORITY SUMMARY:
-  High: Dimension 2 (magic cost violation — continuity error)
-  High: Dimension 1 (cavalry — factual impossibility given World Bible)
-  Medium: Dimension 4 (dark content over-elaboration)
-```
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ---
 
-## Glossary (Relevant Terms)
+## Quality Checks
 
-- **Iceberg principle:** Build far more world detail than appears on the page. The political realism and magic system coherence this skill audits are downstream of that principle — the world must be consistent whether or not the reader sees all of it.
-- **Magic system state:** The versioned record in Module 3.5 of what magic has confirmed been shown to do, what it cannot do, and what it costs — the authoritative source for magic auditing.
-- **Scene Purpose Test:** Every scene must advance plot or reveal character. This audit's "dark content justification" check is one application of this principle — darkness that serves neither purpose fails the test.
-- **POV discipline:** This skill does not audit POV consistency (that is POV Consistency Maintenance's domain), but it does check that the POV character's response to violence and darkness is internally consistent with their psychology.
+Before returning output, verify:
+
+- [ ] MagicSystem node was queried if magic appears in the draft; `status: "Not applicable"` if no magic system exists.
+- [ ] Every flagged passage contains: quoted text reference, issue description, recommended adjustment.
+- [ ] Recommended adjustments are editorial directions — no prose rewrites.
+- [ ] `priority_summary` consolidates all flags across all five dimensions.
+- [ ] `magic_system_updates_recommended` is present (even if empty array).
+- [ ] Dimension 5 tonal assessment addresses the hope-and-agency check explicitly.
+- [ ] Dimensions with no issues have `status: "Pass"` and empty `flagged_passages` array.
+- [ ] No prose rewritten. No scenes written.
+- [ ] No Story State KG writes from this skill — updates in `magic_system_updates_recommended` are routed by the brain.

@@ -1,6 +1,6 @@
 ---
 name: pov-consistency-maintenance
-description: Audits scene drafts for POV discipline violations — head-hopping, omniscient intrusions, knowledge violations, voice inconsistency, external self-description. Use after Scene Construction. Outputs consistency report with flagged violations and correction notes. Does not rewrite.
+description: Audits a drafted scene for POV discipline violations — head-hopping, omniscient narration intrusions, knowledge violations, voice inconsistency against the character's voice profile, and external self-description errors. Queries the Story State KG directly for the POV character's voice profile and knowledge matrix. Returns a consistency report in artifacts. Does not rewrite. Always runs after scene-construction.
 ---
 
 # POV Consistency Maintenance
@@ -8,284 +8,273 @@ description: Audits scene drafts for POV discipline violations — head-hopping,
 ## Identity
 
 **Skill name:** `pov-consistency-maintenance`
-**Purpose:** Verify that the scene draft produced by Scene Construction holds POV discipline with complete consistency — no access to other characters' inner states, no omniscient perspective intrusions, no actions taken on knowledge the POV character does not have, no drift from the established voice profile, and no description of the POV character's own face or expression from outside. Every violation is flagged with a specific location in the text and a concrete correction note. The main agent decides whether to accept the scene or re-invoke Scene Construction.
+**Purpose:** Verify that the scene draft produced by `scene-construction` holds POV discipline with complete consistency. Every violation is flagged with a specific text reference and a concrete correction note. The brain applies the quality gate to this report — a CLEAN report passes the scene; a VIOLATIONS FOUND report triggers re-delegation of `scene-construction` with the flags passed in context.
 
-> **Sibling skills:** This skill audits output from [scene-construction](../scene-construction/SKILL.md). The voice profile it checks against is produced by [character-voice-differentiation](../../character/character-voice-differentiation/SKILL.md).
+> **Sibling skills:** Audits output from `scene-construction`. The voice profile it checks against is stored in the Character node's `properties.voice_profile` sub-record, written by `character-voice-differentiation`.
 
 ---
 
 ## Core
 
-Verify Scene Construction output for: head-hopping, omniscient narration intrusions, knowledge violations (character acts on information they do not have), voice inconsistency against the voice profile, and external self-description errors. Output a consistency report — flagged violations with specific line references and correction notes. Does not rewrite the scene. Main agent decides whether to re-invoke Scene Construction with corrections.
+Verify `scene-construction` output for: head-hopping, omniscient narration intrusions, knowledge violations (character acts on information they do not have), voice inconsistency against the voice profile, and external self-description errors. Return a consistency report in artifacts — flagged violations with specific text references and correction notes. Does not rewrite the scene.
 
 ---
 
 ## Input
 
-The main agent provides:
+### From brain context (`worker_request.context`)
 
-1. **Draft scene from Scene Construction** — the complete draft prose to be audited.
+1. **`draft_scene`** — The `draft_prose` string from `scene-construction` artifacts. Required.
+2. **`pov_character_id`** — The `logical_id` of the POV character. Required.
+3. **`chapter_context`** — Current chapter number. Used to scope KG queries. Required.
 
-2. **POV character voice profile** — the sub-record of Module 1.1. Five dimensions: vocabulary range, sentence structure patterns, observational focus, internal thought patterns, emotional processing style. The voice profile is the reference standard for voice inconsistency checks.
+### Fetched from Story State KG
 
-3. **World Bible excerpt — Module 1.2 (Character Knowledge Matrix):** What the POV character currently knows, suspects, believes (possibly falsely), and does not know. This is the reference standard for knowledge violation checks.
+The writing_subagent queries the Story State KG directly for the two reference standards this audit requires:
 
-> **Note:** This skill receives excerpts from the main agent. It does not access the World Bible directly.
+```
+# POV character — full record including voice profile sub-record
+query_kg_nodes({logical_id: pov_character_id, type: "Character"},
+               as_of_chapter=chapter_context)
+
+# POV character's knowledge matrix
+query_kg_edges({from_node: pov_character_id, type: "KNOWS"},
+               as_of_chapter=chapter_context)
+# Fetch the KnowledgeItem nodes referenced by the KNOWS edges
+```
+
+**Critical:** Read the Character node and knowledge matrix **before** reading the draft. These are the reference standards; the audit compares the draft against them. Reading the draft first risks normalising violations because they appear within a coherent-seeming text.
 
 ---
 
 ## Output
 
-**Consistency report** — a structured audit document:
+All output is returned in `artifacts`. The consistency report is pure analysis — no KG persistence needed. The brain applies the quality gate: CLEAN passes the scene; VIOLATIONS FOUND triggers re-delegation.
 
-### 1. Audit Header
+### `artifacts` structure
 
-- POV character audited.
-- Scene summary (one sentence — orientation only).
-- Overall status: `CLEAN` (no violations found) or `VIOLATIONS FOUND` (N violations of M types).
+```json
+{
+  "audit_header": {
+    "pov_character_id": "char_<slug>",
+    "scene_summary": "<one sentence>",
+    "overall_status": "CLEAN | VIOLATIONS FOUND",
+    "violation_count": 0,
+    "violation_types_found": []
+  },
+  "violation_log": [
+    {
+      "violation_type": "Knowledge Violation | Head-Hopping | Omniscient Intrusion | External Self-Description | Voice Inconsistency",
+      "offending_text": "<the specific sentence or phrase, quoted directly from the draft>",
+      "description": "<precise description of what the violation is and why it is one>",
+      "correction_note": "<specific, concrete suggestion for how to rewrite or replace the offending passage>"
+    }
+  ],
+  "summary_pattern_note": null,
+  "kg_context_used": {
+    "character_node_found": true,
+    "voice_profile_found": true,
+    "knows_edges_found": 0
+  }
+}
+```
 
-A `CLEAN` report is a complete and valid output. The main agent accepts the scene and proceeds.
+`violation_log` is an empty array when `overall_status` is CLEAN. Violations are grouped by type in severity order: Knowledge Violations first (most damaging to narrative integrity), then Head-Hopping, then Omniscient Intrusions, then External Self-Description, then Voice Inconsistency.
 
-### 2. Violation Log
+`summary_pattern_note` is populated (non-null) when a pattern is visible across multiple violations — e.g. a systematic tendency to access other characters' inner states — to help `scene-construction` address the root cause rather than patching individual instances.
 
-Present only when status is `VIOLATIONS FOUND`. One entry per violation. Each entry contains:
-
-- **Violation type** — one of the five categories (see below).
-- **Location** — a specific text reference: the offending sentence or phrase, quoted directly. Do not refer to line numbers (they may not be stable); quote the text.
-- **What the violation is** — a precise description of the problem. "This sentence accesses Vara's interior state" is not precise enough. "This sentence states that Vara 'was concealing her relief' — Caradhen cannot know what Vara is concealing; this is access to her interior state" is precise.
-- **Correction note** — a specific, concrete suggestion for how Scene Construction should rewrite or replace the offending passage to eliminate the violation while preserving the scene's intent. The correction note is not optional. Every flagged violation must have one.
-
-Violations are grouped by type, in severity order: Knowledge Violations first (most damaging to narrative integrity), then Head-Hopping, then Omniscient Intrusions, then External Self-Description, then Voice Inconsistency.
-
-### 3. Summary Note *(optional, present only when violations are found)*
-
-If a pattern is visible across multiple violations — e.g. a systematic drift in the voice profile under a particular kind of scene content, or a recurring tendency toward a specific intrusion type — note it briefly. This helps Scene Construction address the root cause rather than patching individual instances.
+A CLEAN report is complete with only `audit_header` populated (no `violation_log` entries needed). A CLEAN report is a valid, complete output — it is not a failure to find violations.
 
 ---
 
 ## The Five Violation Categories
 
-### Category 1 — Knowledge Violations
+### Category 1 — Knowledge Violations (highest severity)
 
-**Definition:** The POV character acts on, references, reacts to, or is affected by information that Module 1.2 records them as not having. This includes information they DO NOT KNOW and also information they BELIEVE falsely — if a character believes a false thing, the scene must render their belief in the false thing, not the true thing.
+**Definition:** The POV character acts on, references, reacts to, or is affected by information that their knowledge matrix records them as not having. This includes information they `DOES NOT KNOW` and also information they `BELIEVES` falsely — if a character believes a false thing, the scene must render their belief in the false thing, not the true thing.
 
-**What to check:** Every piece of information in the scene that shapes the POV character's behaviour. For each: does Module 1.2 record this character as knowing, suspecting, believing, or not knowing it? If a character responds to something as though they know it, and Module 1.2 says they do not know it, that is a knowledge violation.
+**What to check:** Every piece of information shaping the POV character's behaviour or narration. For each: what is the character's status for this information in their KNOWS edges?
+- `KNOWS` — permitted.
+- `SUSPECTS` — permitted with appropriate hedging; the character infers, guesses, reads between lines. They do not treat it as confirmed.
+- `BELIEVES (possibly false)` — the scene must render the character acting on the *false* belief as though it were true. If the scene renders the true version instead, flag it.
+- `DOES NOT KNOW` — the character cannot reference, respond to, or be affected by this information in any way.
 
-**Subcategories:**
-- *Direct knowledge violation:* The character is stated to know, understand, or be aware of something they DO NOT KNOW.
-- *Inference overreach:* The character draws an inference that would only be available to someone with information they lack. There is a spectrum here — reasonable inference from available data is not a violation; inference that requires access to unavailable data is.
-- *False belief not honoured:* Module 1.2 records a BELIEVE (possibly false) status, but the scene renders the character acting on the true version of events rather than their false belief.
-
-**Correction approach:** In most cases, the correction is to replace the statement of knowledge with a statement of inference, suspicion, or the character acting on their false belief as though it were true. The scene's surface can often be preserved; only the epistemic framing needs to change.
+**Inference overreach:** There is a spectrum between valid inference and knowledge violation. Reasonable inference from available data is not a violation; inference that requires access to unavailable data is. The POV character's established perceptiveness (from `voice_profile.observational_focus`) sets the upper bound on how sharp their inferences can be.
 
 ### Category 2 — Head-Hopping
 
 **Definition:** The prose accesses the internal state — thoughts, feelings, intentions, motivations — of any character who is not the POV character, and this access is not inferrable from observable external behaviour.
 
-**The inference threshold:** This is the most judgment-intensive of the five categories. Some interiority is inferrable from behaviour, and a skilled POV narrator can render that inference without head-hopping. The test is: *Could the POV character reasonably form this inference from what they can observe?* If the POV character is perceptive, they will form more inferences; if they are naive or distracted, fewer. The inferences must be consistent with this character's established perceptiveness and interpretive style.
+**The inference threshold:** The most judgment-intensive category. Some interiority is inferrable from behaviour and a skilled POV narrator can render that inference without head-hopping. The test is: *Could the POV character reasonably form this inference from what they can observe? Is this inference consistent with the POV character's established perceptiveness from their voice profile?*
 
 **What is not head-hopping:**
-- "Something in the angle of his shoulders suggested he was not as calm as he appeared." (Observable behaviour; plausible inference from an observant POV character.)
+- "Something in the angle of his shoulders suggested he was not as calm as he appeared." (Observable behaviour; plausible inference.)
 - "She smiled, and the smile did not reach her eyes." (Observable behaviour rendered through POV perception.)
-- "He thought she looked like someone who had already decided." (A specific inference from external behaviour; the POV character's interpretation, not a report of Vara's actual interior state.)
+- "He thought she looked like someone who had already decided." (The POV character's interpretation, not a report of another's actual interior state.)
 
 **What is head-hopping:**
-- "Vara was relieved." (States her interior state directly — no inference mechanism.)
-- "He did not know that she had already decided." (Requires an outside observer to know both that he doesn't know and that she has decided.)
+- "Vara was relieved." (States her interior state directly.)
+- "He did not know that she had already decided." (Requires an outside observer to know both facts simultaneously.)
 - "She was thinking about the assessment brief." (States the content of her thoughts directly.)
-
-**Correction approach:** Replace the direct interior-state access with the POV character's observation of external behaviour and their inference from it. Preserve the intended meaning — the reader still understands what Vara is feeling — but route it through the POV character's perception and interpretive apparatus.
 
 ### Category 3 — Omniscient Narration Intrusions
 
-**Definition:** A narrative observation or statement that requires a perspective positioned above or outside the POV character — a god's-eye view that neither character nor reader can occupy from within this POV.
+**Definition:** A narrative observation or statement requiring a perspective positioned above or outside the POV character.
 
 **Common forms:**
-- Statements about what neither character knows: "Neither of them realised what was beginning." (Who is the observer who knows what neither of them realises?)
-- Statements about the future from a position of narrative knowledge: "This would be the last time they met." (The POV character cannot know this; neither can any in-scene observer.)
-- Statements about what is happening elsewhere simultaneously: "While Caradhen waited, in the capital Aldric was signing the order." (The POV character cannot perceive this.)
-- Narrative commentary that positions the reader outside the POV's perception: "What Caradhen did not understand was..." (The POV character cannot report what they do not understand from outside their own ignorance.)
+- Statements about what neither character knows: "Neither of them realised what was beginning."
+- Statements of narrative futurity: "This would be the last time they met."
+- Statements about simultaneous events elsewhere: "While Caradhen waited, in the capital Aldric was signing the order."
+- Narrative commentary positioning the reader outside POV perception: "What Caradhen did not understand was..."
 
-**What is not an omniscient intrusion:** The POV character can anticipate, dread, speculate, and wonder. "He did not think they would meet again" is not an omniscient intrusion — it is the character's belief, rendered as their belief. "He did not know they would never meet again" is an intrusion — it implies an external observer who knows the future.
-
-**Correction approach:** Reroute the observation through the POV character's perception, belief, or inference. What the character can experience — dread, intuition, premonition — can carry the same emotional content without requiring an external observer.
+**What is not an intrusion:** The POV character can anticipate, dread, speculate, and wonder. "He did not think they would meet again" is not an intrusion — it is the character's belief, rendered as their belief. "He did not know they would never meet again" is an intrusion — it implies an external observer who knows the future.
 
 ### Category 4 — External Self-Description
 
-**Definition:** The POV character describes their own face, expression, or physical appearance from the outside — as another character or an external observer would see them.
+**Definition:** The POV character describes their own face, expression, or physical appearance from the outside — as another character or external observer would see them.
 
 **What this prohibits:**
-- "His face darkened." (Caradhen cannot see his own face.)
-- "She felt her expression harden." (She can feel muscular tension; she cannot see her expression.)
-- "He looked pale." (He cannot observe his own pallor.)
+- "His face darkened."
+- "She felt her expression harden."
+- "He looked pale."
 
-**What is permitted:** The POV character experiences their own body from the inside. Physical sensation, proprioception, and autonomic response are all available.
-- "Something tightened in his jaw." (Muscular tension — proprioceptive, not visual.)
-- "She felt the blood leave her face." (Physical sensation — not visual self-observation.)
+**What is permitted:** The POV character experiences their own body from the inside — physical sensation, proprioception, autonomic response:
+- "Something tightened in his jaw." (Muscular tension — proprioceptive.)
+- "She felt the blood leave her face." (Physical sensation — not visual.)
 - "His hands had gone very still." (He can observe his own hands.)
 - "The headache arrived behind his left eye." (Internal physical experience.)
 
-**Correction approach:** Replace the external self-observation with the equivalent internal physical sensation. In almost all cases, the internal experience is more vivid and more immediate than the external description it replaces.
+**Correction approach:** Replace external self-observation with the equivalent internal physical sensation. In almost all cases, the internal experience is more vivid and more immediate than the external description it replaces.
 
 ### Category 5 — Voice Inconsistency
 
-**Definition:** Prose that has drifted from the POV character's established voice profile — vocabulary that does not match their range, sentence structures that contradict their established patterns, observational targets that fall outside their established focus, or emotional processing that contradicts their established style.
+**Definition:** Prose that has drifted from the POV character's established voice profile — vocabulary outside their range, sentence structures contradicting their established patterns, observational targets outside their established focus, or emotional processing contradicting their established style.
 
-**How to assess:** Compare the flagged passage to the voice profile's five dimensions:
-- *Vocabulary:* Is the word choice consistent with this character's established range? Does it reach for words this character would not use?
-- *Sentence structure:* Does the syntax match their established patterns for this emotional register? (A character whose voice profile specifies compression under stress should not be producing long subordinated sentences in an Urgent-register scene.)
-- *Observational focus:* Is the character noticing things that fall outside their established attention patterns? (A character who notices power geometry noticing decoration instead is a voice drift unless it is deliberate and motivated.)
-- *Internal thought patterns:* Is the character reasoning in their established mode — image-based, logical, associative — or in a generic mode?
-- *Emotional processing:* Is the character handling their emotion in their established way, or has the narration slipped into a generic emotional register?
+**How to assess:** Compare the flagged passage against the five dimensions of `properties.voice_profile`:
+- *Vocabulary:* Is the word choice consistent with the character's established register?
+- *Sentence structure:* Does the syntax match their established pattern for this emotional register? (A character whose profile specifies compression under stress should not be producing long subordinated sentences in an Urgent-register scene.)
+- *Observational focus:* Is the character noticing things outside their established attention patterns?
+- *Internal thought patterns:* Is the character reasoning in their established mode?
+- *Emotional processing:* Is the character handling emotion in their established way?
 
-**Important calibration:** Voice under extreme stress is legitimately different from baseline voice. The voice profile should specify how the voice changes under pressure; a character whose baseline is long and deliberate may have short declaratives as their stressed mode. Distinguish between voice inconsistency (the voice doesn't match the profile) and voice drift under stress (the voice is changing in ways not specified in the profile). Only flag the former as a violation; the latter may warrant a note in the Summary section.
-
-**Correction approach:** Rewrite the flagged passage to restore the voice profile parameters for this character in this emotional register. The scene's content can often be preserved; the rendering must change.
+**Important calibration:** Voice under extreme stress is legitimately different from baseline voice — the voice profile specifies the stressed-voice variant. Distinguish between voice inconsistency (the voice does not match the profile) and voice drift under stress (the voice is changing in ways not specified in the profile). Only flag the former as a violation; the latter warrants a `summary_pattern_note`.
 
 ---
 
 ## Boundary
 
-- **Does not rewrite the scene.** Flags violations and provides correction notes; Scene Construction executes the rewrite.
-- **Does not audit for prose quality, rhythm, or craft beyond POV discipline.** Sentence trimming, rhythm improvement, and line-level polish are Self-Editing and Refinement's domain.
-- **Does not audit for conflict weight.** That is Conflict Layering's domain.
-- **Does not audit continuity across chapters.** This skill audits a single scene. Full chapter-level POV consistency audit (across all scenes in a chapter) is POV Consistency Auditing's domain (Group 7).
-- **Does not make plot decisions.** If a knowledge violation is found, the correction note specifies how to fix the epistemic framing — not whether the information should be known or how the character should react.
-- **Does not update the World Bible.** Output is an audit report returned to the main agent.
+- **Does not rewrite the scene.** Flags violations and provides correction notes; `scene-construction` executes the rewrite.
+- **Does not audit for prose quality, rhythm, or craft beyond POV discipline.** That is `self-editing-and-refinement`'s domain.
+- **Does not audit for conflict weight.** That is `conflict-layering`'s domain.
+- **Does not audit continuity across chapters.** Audits a single scene. Full chapter-level POV audit is `pov-consistency-auditing`'s domain (Group 7, currently shelved).
+- **Does not make plot decisions.** Correction notes specify how to fix the epistemic framing — not whether the information should be known.
+- **Does not write to the Story State KG.**
 
 ---
 
 ## Invocation
 
-The main agent invokes POV Consistency Maintenance:
+The `writing_subagent` invokes this skill after every `scene-construction` invocation, before the scene is accepted. This skill always runs after `scene-construction`.
 
-- After every Scene Construction invocation, before the scene is accepted. This skill always runs after Scene Construction.
-- A `CLEAN` report means the scene passes; the main agent accepts the draft and proceeds to the next step (Conflict Layering if flagged, Layering History and Legend if applicable, or the next scene in the chapter).
-- A `VIOLATIONS FOUND` report means the main agent re-invokes Scene Construction with the correction notes as additional input. The corrected draft is then re-submitted to POV Consistency Maintenance.
+- A CLEAN report means the scene passes; the brain accepts the draft and proceeds to the next step.
+- A VIOLATIONS FOUND report means the brain re-delegates `scene-construction` with the violation log passed in context as `pov_consistency_flags`. The corrected draft is then re-submitted to this skill.
 
-**Standard post-scene-construction sequence:**  
-`Scene Construction → POV Consistency Maintenance → [if VIOLATIONS FOUND: back to Scene Construction] → [if CLEAN: next step]`
+**Standard post-scene-construction sequence:**
+`writing_subagent (scene-construction)` → `writing_subagent (pov-consistency-maintenance)` → `[if VIOLATIONS FOUND: back to scene-construction]` → `[if CLEAN: next step]`
 
 ---
 
-## World Bible Interface
+## Story State Interface
 
-| Direction | Modules |
+| Direction | Details |
 |---|---|
-| **Reads from** (as excerpts provided by main agent) | Module 1.1 (Character Directory — POV character voice profile sub-record), Module 1.2 (Character Knowledge Matrix — current POV character) |
-| **Main agent writes to** | Nothing — consistency report is returned to the main agent; no World Bible update occurs |
+| **Queries from Story State KG** | Character node including `voice_profile` sub-record (POV character, `as_of_chapter`); KNOWS edges and KnowledgeItem nodes (knowledge matrix for the POV character) |
+| **Returns in artifacts** | Consistency report — overall status, violation log with correction notes, optional summary pattern note. No KG persistence needed |
 
 ---
 
 ## Dependencies
 
-**Upstream:** **Scene Construction** (draft scene required). Module 1.1 voice profile and Module 1.2 must be current.
-**Downstream:** A `CLEAN` report clears the scene for the next step. A `VIOLATIONS FOUND` report triggers re-invocation of **Scene Construction** with correction notes. After all scenes in a chapter are clean, the completed chapter draft proceeds to **Layering History and Legend** (optional), then **Self-Editing and Refinement**, then **POV Consistency Auditing** (chapter-level).
+**Upstream:** `scene-construction` draft prose required in context. Character node with voice profile and KNOWS edges must be current in Story State KG.
+
+**Downstream:** CLEAN report clears the scene for the next step (optionally `conflict-layering`, then `layering-history-and-legend`, then the brain creates a Chapter node via `story_state_manager`). VIOLATIONS FOUND report triggers re-delegation of `scene-construction` with the violation log in context.
 
 ---
 
 ## Instructions
 
-### POV Consistency Audit Workflow
-
-Copy this checklist and track your progress:
+### Audit Workflow
 
 ```
-POV Consistency Audit Progress:
-- [ ] Step 1: Read voice profile and knowledge matrix (before draft)
-- [ ] Step 2: Read draft for knowledge violations (epistemic check)
-- [ ] Step 3: Read draft for head-hopping (inference threshold check)
-- [ ] Step 4: Read draft for omniscient intrusions
-- [ ] Step 5: Read draft for external self-description
-- [ ] Step 6: Read draft for voice inconsistency
+- [ ] Step 1: Query Story State KG — fetch Character node and knowledge matrix BEFORE reading draft
+- [ ] Step 2: Read draft for Knowledge Violations (epistemic check)
+- [ ] Step 3: Read draft for Head-Hopping (inference threshold check)
+- [ ] Step 4: Read draft for Omniscient Intrusions
+- [ ] Step 5: Read draft for External Self-Description
+- [ ] Step 6: Read draft for Voice Inconsistency
 - [ ] Step 7: Assemble and return consistency report
 ```
 
----
+### Step 1 — Query the Story State KG
 
-### Step 1 — Read the voice profile and knowledge matrix before reading the draft
+Query the Character node and KNOWS edges **before reading the draft**. Reading the reference standards first prevents the audit from normalising violations by reading them within a coherent-seeming context.
 
-Do not read the draft first. Read the voice profile (Module 1.1 sub-record) and the knowledge matrix (Module 1.2) first. These are the reference standards; the audit compares the draft against them. Reading the draft before establishing the reference standards risks normalising violations because they appear within a coherent-seeming draft.
+From the Character node, identify:
+- `properties.voice_profile` — five dimensions; the reference standard for Category 5
+- `properties.core_wound`, `self_deception`, and `response_patterns` — context for assessing inference plausibility
 
-Identify from the voice profile:
-- The character's vocabulary range and any specific markers (words they reach for, words they do not use)
-- Sentence structure patterns per emotional register
-- What they notice and what they miss
-- How they process emotion internally
-- Their stressed-voice variant (how the profile changes under pressure)
-
-Identify from the knowledge matrix:
-- Everything flagged DOES NOT KNOW — these are the hard prohibition on the POV character's access to information
-- Everything flagged BELIEVES (possibly false) — the character acts on their false belief; the scene must honour this
-- Everything flagged SUSPECTS — the character may infer toward these but cannot treat them as known
+From the KNOWS edges and KnowledgeItem nodes, map:
+- All items with status `DOES NOT KNOW` — hard prohibition on POV character access
+- All items with status `BELIEVES` (possibly false) — character acts on the false version; the true version is a violation
+- All items with status `SUSPECTS` — character may infer toward these but cannot treat them as confirmed
 
 ### Step 2 — Read the draft for knowledge violations
 
-Read the scene draft with Module 1.2 active as a reference. For every piece of information that shapes the POV character's behaviour or narration:
-
-Ask: *Is this information within the character's epistemic access?*
-- If KNOWS: permitted. The character can reference, act on, and respond to this freely.
-- If SUSPECTS: permitted with appropriate hedging. The character infers, guesses, reads between lines. They do not treat it as confirmed.
-- If BELIEVES (possibly false): the scene must render the character acting on the false belief as though it were true. If the scene renders the true version instead, flag it.
-- If DOES NOT KNOW: the character cannot reference, respond to, or be affected by this information in any way. Any passage where they appear to be affected by it is a knowledge violation.
-
-Flag every violation. Be specific in the quotation and precise in the description.
+Read the scene draft with the knowledge matrix active as a reference. For every piece of information shaping the POV character's behaviour, check the character's status. Flag every violation with a quoted offending text and a precise description. Specify the character's actual status for the information in the correction note.
 
 ### Step 3 — Read the draft for head-hopping
 
-Read the draft again, now attending specifically to every passage that concerns a character other than the POV character. For each:
+Read the draft attending specifically to every passage concerning a non-POV character. For each, apply the inference threshold: *Could the POV character reasonably form this inference from observable behaviour, consistent with their established perceptiveness?* If the passage directly states another character's interior state without routing through inference or observable behaviour, flag it.
 
-Apply the inference threshold: *Can the POV character reasonably infer this about the other character from what they can observe? Is this inference consistent with the POV character's established perceptiveness and interpretive style?*
-
-If the passage directly states the other character's interior state without routing through inference or observable behaviour: flag it.
-If the passage makes an inference that is plausible given the POV character's observational capacity: not a violation.
-If the inference would require information the POV character does not have access to: knowledge violation, not head-hopping — record it in Category 1.
+If the passage makes an inference that requires information the POV character does not have — cross-reference with the knowledge matrix — record it as a knowledge violation (Category 1), not head-hopping.
 
 ### Step 4 — Read the draft for omniscient intrusions
 
-Read the draft again, now attending to statements that require an external or above-the-action perspective. Flag any:
-- Statements about what neither character knows
-- Statements that position the reader outside the POV's perception ("What Caradhen did not realise was...")
-- Statements of narrative futurity that require an outside observer to know the future
-- Statements about events happening elsewhere simultaneously and outside the POV character's perception
-
-Distinguish these from the POV character's internal speculation about the future (permitted) or their intuition about something they cannot verify (permitted with appropriate epistemic hedging).
+Attend to statements requiring an external or above-the-action perspective. Distinguish from the POV character's internal speculation about the future (permitted) or their intuition about something they cannot verify (permitted with appropriate epistemic hedging).
 
 ### Step 5 — Read the draft for external self-description
 
-Read the draft again, attending specifically to passages about the POV character's own physical appearance. Flag any passage where the character observes their own face, expression, or overall appearance as though from outside.
-
-Check: does the passage route through internal physical sensation and proprioception (permitted) or through external visual observation (prohibited)?
+Attend specifically to passages about the POV character's own physical appearance. Check whether the passage routes through internal physical sensation and proprioception (permitted) or through external visual observation (prohibited).
 
 ### Step 6 — Read the draft for voice inconsistency
 
-Read the draft again, now holding the voice profile as the active reference. For each paragraph, check the five dimensions:
-- Does the vocabulary match the established range for this character in this emotional register?
-- Does the sentence structure match the established pattern for this character under this level of stress?
-- Are the observational targets within the established focus?
-- Is the internal processing mode consistent with how this character thinks?
-- Is the emotional processing consistent with this character's established style?
-
-Flag passages where the answer is no. Apply the calibration distinction: is this a genuine inconsistency with the profile, or is it a legitimate stressed-voice variant that the profile accounts for? Only flag the former.
-
-If a passage shows voice drift that is not a clear violation but is a tendency worth noting (e.g. a sustained middle section where the character's specific vocabulary markers are absent), include it in the Summary Note rather than the Violation Log.
+Hold the voice profile as the active reference. For each paragraph, check the five dimensions. Apply the calibration distinction: genuine inconsistency with the profile vs. legitimate stressed-voice variant that the profile accounts for. Only flag the former. If voice drift that is not a clear violation but is a tendency worth noting is found, include it in `summary_pattern_note`.
 
 ### Step 7 — Assemble and return the consistency report
 
-Group violations by category in severity order. For each violation, write:
-- The type
-- The offending text, quoted
-- The precise description of the violation
-- A specific, concrete correction note
+Group violations by category in severity order. For each violation: quoted offending text, precise description, specific correction note.
 
-If no violations were found: return a `CLEAN` report with the audit header only. No further content is needed.
-
-If a pattern note is warranted: add the Summary Note after the Violation Log.
-
-Return the complete report to the main agent.
+If no violations: return a CLEAN report with `overall_status: "CLEAN"` and an empty `violation_log` array. No further content needed — CLEAN is a complete, valid output.
 
 ---
 
 ## Example
 
-See [references/EXAMPLES.md](references/EXAMPLES.md) for input/output examples and quality checklist.
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
+
+---
+
+## Quality Checks
+
+Before returning output, verify:
+
+- [ ] Character node and knowledge matrix were queried **before** the draft was read.
+- [ ] `kg_context_used.voice_profile_found` is `true` before proceeding; if `false`, return `need_input`.
+- [ ] Every violation entry has: type, quoted offending text (not a line number), precise description, specific correction note.
+- [ ] Violations are grouped by category in severity order.
+- [ ] Inference threshold was applied honestly for head-hopping — plausible inference is not a violation.
+- [ ] External self-description is distinguished from internal physical sensation.
+- [ ] Voice inconsistency is distinguished from legitimate stressed-voice variants.
+- [ ] A CLEAN report has `overall_status: "CLEAN"` and `violation_log: []`. Nothing further required.
+- [ ] No prose rewritten. Correction notes only.
+- [ ] No Story State KG writes from this skill.

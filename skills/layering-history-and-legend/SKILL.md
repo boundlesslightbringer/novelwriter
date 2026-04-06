@@ -1,6 +1,6 @@
 ---
 name: layering-history-and-legend
-description: Weaves backstory, in-world songs, legends, ruins, artifacts, and conflicting historical accounts into a completed scene or chapter draft through the natural filter of the POV character's knowledge and cultural context. Invoked after Scene Construction and POV Consistency Maintenance have cleared the draft. Outputs a revised draft with history and legend integrated. Does not introduce new plot events or create new history not already in the World Bible.
+description: Weaves backstory, in-world songs, legends, ruins, artifacts, and conflicting historical accounts into a completed scene or chapter draft through the natural filter of the POV character's knowledge and cultural context. Queries Story State KG directly for history and legend records, culture records, and the POV character's knowledge matrix. Invoked after scene-construction and pov-consistency-maintenance have cleared the draft. Returns a revised draft in artifacts. Does not introduce new plot events or create new history not already in Story State.
 ---
 
 # Layering History and Legend
@@ -8,43 +8,101 @@ description: Weaves backstory, in-world songs, legends, ruins, artifacts, and co
 ## Identity
 
 **Skill name:** `layering-history-and-legend`
-**Purpose:** The past is not backstory — it is a living pressure on every scene. This skill integrates that pressure into prose that has already been written and cleared for POV consistency: the ruins that are visible from this window, the song one of these characters half-remembers, the contested legend that the two cultures in the room interpret differently, the artifact on the table whose significance the POV character partially understands. None of this is delivered as information. It enters the scene through the filter of what this specific character knows, misremembers, was taught, and believes — and it serves the scene's existing conflict, not a worldbuilding agenda.
+**Purpose:** The past is not backstory — it is a living pressure on every scene. This skill integrates that pressure into prose that has already been written and cleared for POV consistency: the ruins visible from this window, the song one of these characters half-remembers, the contested legend the two cultures interpret differently, the artifact on the table whose significance the POV character partially understands. None of this is delivered as information. It enters the scene through the filter of what this specific character knows, misremembers, was taught, and believes — and it serves the scene's existing conflict, not a worldbuilding agenda.
 
-> **Sibling skills:** This skill operates on output from [scene-construction](../scene-construction/SKILL.md) after it has passed [pov-consistency-maintenance](../pov-consistency-maintenance/SKILL.md). History integration happens only after the scene's core prose is POV-consistent.
+> **Sibling skills:** Operates on output from `scene-construction` after it has passed `pov-consistency-maintenance`. History integration happens only after the scene's core prose is POV-consistent.
 
 ---
 
 ## Core
 
-Weave backstory, in-world songs, legends, ruins, artifacts, and conflicting historical accounts into existing prose through the natural filter of the POV character's knowledge and cultural context. Operate on completed, POV-consistent scene or chapter drafts only. Do not introduce new plot events. Do not create new history not already in the World Bible. Output a revised draft with history and legend integrated.
+Weave backstory, in-world songs, legends, ruins, artifacts, and conflicting historical accounts into existing prose through the natural filter of the POV character's knowledge and cultural context. Operate on completed, POV-consistent scene or chapter drafts only. Do not introduce new plot events. Do not create new history not already in Story State. Return a revised draft in artifacts.
 
 ---
 
 ## Input
 
-The main agent provides:
+### From brain context (`worker_request.context`)
 
-1. **Completed scene or chapter draft** — a draft that has already passed POV Consistency Maintenance (and Conflict Layering, if that was invoked). The draft is the base material; the skill adds to it without removing or altering its existing events, choices, or consequences.
+1. **`draft_scene`** — The POV-consistent scene or chapter draft from `pov-consistency-maintenance` CLEAN output. Required.
+2. **`pov_character_id`** — The `logical_id` of the POV character. Required.
+3. **`chapter_context`** — Current chapter number. Used to scope all KG queries. Required.
+4. **`scene_location_id`** (optional) — The `logical_id` of the Location node for this scene's setting. When provided, the writing_subagent can query historical Event nodes whose `physical_remnants` involve this location.
 
-2. **World Bible excerpt — Module 3.4 (History & Legends):** The relevant records — specifically those whose physical remnants, believed accounts, or factional interpretations intersect with this scene's location, characters, or active themes. The main agent passes only the records relevant to this scene, not the full Module 3.4. Key fields per record: event name, true account (if known), believed account (what characters generally believe), factional interpretations (how different cultures or factions remember it differently), physical remnants (ruins, artifacts, locations), and story significance.
+### Fetched from Story State KG
 
-3. **World Bible excerpt — Module 3.3 (Cultures, Customs & Religion):** The relevant cultural records — specifically the cultures represented by characters in the scene, including their core values, customs, religious beliefs, and relationship to history and legend. The POV character's cultural lens shapes which histories they know, how they interpret them, and what weight they give to legend versus documented account.
+The writing_subagent queries the Story State KG directly for all context this skill requires:
 
-4. **World Bible excerpt — Module 1.2 (Character Knowledge Matrix):** What the POV character currently knows, suspects, believes, and does not know. This is the epistemic constraint on history integration: the POV character can only know, misremember, or wonder about historical and legendary material that is consistent with their knowledge state. They cannot reveal, reference, or be affected by historical facts that Module 1.2 records them as not having.
+```
+# POV character's knowledge matrix — epistemic constraint on history integration
+query_kg_edges({from_node: pov_character_id, type: "KNOWS"},
+               as_of_chapter=chapter_context)
+# Fetch KnowledgeItem nodes referenced by the KNOWS edges
 
-> **Note:** This skill receives excerpts from the main agent. It does not access the World Bible directly.
+# POV character's culture — determines what history they know and how they interpret it
+query_kg_edges({from_node: pov_character_id, type: "BELONGS_TO_CULTURE"},
+               as_of_chapter=chapter_context)
+# Fetch the Culture node(s) from the above edges
+
+# Historical and legendary events — potential integration candidates
+query_kg_nodes({type: "Event",
+                "properties.is_historical": true},
+               as_of_chapter=chapter_context)
+
+# If scene_location_id is provided, also check the Location node
+# for any historically significant features
+query_kg_nodes({logical_id: scene_location_id, type: "Location"},
+               as_of_chapter=chapter_context)
+
+# Other cultures represented by non-POV characters in the scene
+# (for conflicting interpretations — infer character IDs from scene context)
+# Fetch their BELONGS_TO_CULTURE edges and Culture nodes
+```
+
+Review all historical Event nodes against the scene's location, characters, and active themes. Only retrieve the Culture nodes relevant to cultures represented in the scene — do not query all cultures in Story State.
+
+If any query returns no results, note the absence in `kg_context_used` and proceed without that dimension. An empty historical Event set simply means no history has been recorded yet; do not halt.
 
 ---
 
 ## Output
 
-**Revised draft** — the complete scene or chapter draft with history and legend integrated. The output is prose, not an annotation of changes. The revised draft is ready to proceed to the next step (Self-Editing and Refinement, or POV Consistency Auditing if this is the chapter's final pass).
+All output is returned in `artifacts`. The revised draft is the primary output. The brain applies the quality gate. If the brain accepts the revised draft, it routes a `story_state_manager` update for any historical Event nodes whose `referenced_in_chapters` array should be updated.
 
-The integration is:
-- **Organic** — history and legend enter through the scene's existing material: what the POV character notices in the environment, what a piece of dialogue triggers in their memory, what a physical object makes them think of, what they were taught versus what the other character in the scene was taught.
-- **Filtered** — all historical content passes through the POV character's specific knowledge state (Module 1.2), their cultural lens (Module 3.3), and their voice profile. The narration never becomes a neutral history lecture.
-- **Functional** — integrated history serves the scene's existing conflict, character dynamics, or stakes. It does not pause the scene for worldbuilding. If a legend is referenced, it is because it resonates with what the characters are experiencing or deepens the reader's understanding of the scene's underlying tension.
-- **Iceberg-consistent** — the amount of history visible on the page is the tip. The integration should create the sense that a much larger historical reality exists beneath the surface of the scene. Do not deliver all available historical content; deliver what the scene absorbs naturally.
+### `artifacts` structure
+
+```json
+{
+  "revised_draft": "<the complete revised prose — same scene, history integrated>",
+  "integration_log": [
+    {
+      "element_type": "Physical remnant | Artifact | Legend | Song or saying | Conflicting account | Backstory",
+      "source_node_id": "event_<slug> | culture_<slug>",
+      "where_integrated": "<brief description of where in the scene and through what trigger>",
+      "epistemic_basis": "KNOWS | BELIEVES (false) | Cultural background | No KG record — not integrated",
+      "forced_plant_removed": false
+    }
+  ],
+  "referenced_events_to_update": [
+    {
+      "event_logical_id": "event_<slug>",
+      "chapter_to_add": 0
+    }
+  ],
+  "kg_context_used": {
+    "historical_events_found": 0,
+    "culture_nodes_found": 0,
+    "knows_edges_found": 0,
+    "location_node_found": false
+  }
+}
+```
+
+`revised_draft` contains the complete scene prose with integrations woven in. It is not a diff or annotation — it is the full revised text ready to proceed.
+
+`integration_log` records every candidate element that was evaluated: those integrated and those rejected (with `epistemic_basis: "No KG record — not integrated"` or with `forced_plant_removed: true` where a plant was rejected after evaluation). This allows the brain's quality gate to verify that integrations are grounded in actual Story State records and are epistemic-consistent.
+
+`referenced_events_to_update` is the list of historical Event nodes where `referenced_in_chapters` should be updated to include `chapter_context`. The brain routes these as `update_kg_node` calls to `story_state_manager`. If no historical events were referenced in the revised draft, this array is empty.
 
 ---
 
@@ -52,45 +110,41 @@ The integration is:
 
 ### Ruins, locations, and physical remnants
 
-Physical remnants of history that exist in the scene's location — a wall built by a culture that no longer exists, a room that was once something else, a skyline that is missing what it used to have. These enter through the POV character's perception of the physical space: they notice the remnant, and their noticing carries their knowledge or ignorance of what it means.
+Physical remnants of history that exist in the scene's location — a wall built by a culture that no longer exists, a room that was once something else, a skyline missing what it used to have. Enter through the POV character's perception of the physical space. They notice the remnant, and their noticing carries whatever knowledge or ignorance they have about what it means.
 
-Not every scene has a historically significant physical setting. This category applies only when the scene is set in a location with a Module 3.4 physical remnant record.
+Check: is the physical remnant listed in a historical Event node's `physical_remnants` array? If yes, and the scene is set at that location, it may be integrated. The character's `KNOWS`/`BELIEVES`/`DOES NOT KNOW` status for the associated historical event determines how they interpret it.
 
 ### Artifacts and objects
 
-Objects with historical, cultural, or legendary significance that are present in the scene. Weapons, tools, garments, documents, ritual objects, gifts. They enter through the POV character's perception of the object and whatever knowledge or association they have with it.
-
-The POV character's relationship to an object's history is filtered by their culture (Module 3.3) and their knowledge state (Module 1.2). A character may know an artifact's significance and treat it with appropriate weight; a character from a different culture may not recognise it at all; a character may misidentify it and carry an incorrect interpretation. All three are valid integrations. The false identification must be consistent with Module 1.2's BELIEVE (possibly false) records or with reasonable ignorance given the character's cultural background.
+Objects with historical, cultural, or legendary significance present in the scene. Enter through the POV character's perception of the object and whatever knowledge or association they have with it. The character may know the artifact's significance, misidentify it, or not recognise it at all — all three are valid integrations, determined by the knowledge matrix.
 
 ### Legends and oral traditions
 
-Stories that exist in the world — in-world myths, founding legends, cautionary tales, stories about specific places or objects or bloodlines. They enter through the scene's active material when the scene's events rhyme with a legend's structure, when one character references a legend the other interprets differently, or when a physical setting has a legendary resonance.
+In-world myths, founding legends, cautionary tales, stories about specific places or bloodlines. Enter when the scene's events rhyme with a legend's structure, or when one character references a legend the other interprets differently.
 
-The power of in-world legends is that different characters know different versions. Two characters from different cultures or factions in the same scene may reference the same event with entirely different interpretations — and neither may know the true account (if Module 3.4 records one). This tension between interpretations, rendered within a scene, is one of the richest forms of history integration.
+The power of in-world legends is that different cultures know different versions. Two characters from different cultures may reference the same historical Event with entirely different interpretations (per `factional_interpretations` in the Event node). This tension — rendered without resolution — is one of the richest forms of history integration.
 
 ### In-world songs, sayings, and oral literature
 
-Brief fragments — a line from a song, a proverb, a saying — that one of the scene's characters might reach for in this moment. These must be consistent with the POV character's cultural background (Module 3.3) and must serve the scene's current emotional or thematic content. A character who is about to do something that violates their culture's core values may hear a fragment of their culture's oral tradition rising in their mind unbidden — not because the plot needs it, but because that is how cultural formation actually works under pressure.
-
-Songs and sayings are fragments only. This skill does not write complete in-world songs or poems unless they are already recorded in Module 3.4. If a song exists in Module 3.4, a line or phrase may be cited; never reproduced in full unless the scene requires the full text and the cultural context makes the recitation in-scene plausible.
+Brief fragments — a line from a song, a proverb, a saying. Must be consistent with the POV character's Cultural background and serve the scene's current emotional or thematic content. Fragments only, not complete texts.
 
 ### Conflicting historical accounts
 
-When two characters in a scene come from different cultures or factions, they may carry incompatible versions of the same historical event — because Module 3.4 records multiple factional interpretations. This is the most structurally powerful form of history integration: the conflict between interpretations mirrors or amplifies the scene's existing interpersonal conflict. It does not need to be made explicit — the POV character noticing that the other character's reference to a historical event carries a different meaning than the meaning they were taught is sufficient.
+When two characters come from different cultures, they may carry incompatible versions of the same historical event. The POV character noticing that the other character's reference to a historical event carries a different meaning than their own tradition is sufficient — it does not need to be made explicit.
 
 ### Backstory
 
-Character-specific backstory — specific formative events, remembered experiences, the texture of the past that has produced the person now in the scene. Backstory enters through specific memory triggers in the scene's present material: a smell, a sound, a word, a gesture by another character that resonates with something in the POV character's personal past. Backstory is always specific and always brief; a memory intrusion should be a sentence or two, not a scene-within-a-scene. The past is a pressure on the present; it is not the present.
+Character-specific formative memories triggered by something in the scene's present material. Always specific (a particular image or moment from the past, not a summary of a period) and always brief — one or two sentences. The past is a pressure on the present; it is not the present.
 
 ---
 
 ## What May Not Be Integrated
 
-- **New historical events not recorded in Module 3.4.** This skill works only with established World Bible content. If relevant history is absent from Module 3.4, the main agent must first update the World Bible; the skill cannot create history.
-- **New plot events.** The revised draft may not contain events — actions, revelations, choices, consequences — that were not in the base draft. Integration adds texture and depth to existing material; it does not advance the plot.
-- **Exposition blocks.** History is never delivered as an information dump, regardless of how it is framed. A character's internal monologue summarising a historical event for the reader's benefit is exposition; it must not appear. History enters through observation, fragment, association, and implication — not through summary.
-- **Corrected false beliefs.** If Module 1.2 records the POV character as believing something historically false (a BELIEVE status), the integration must honour that false belief. The character does not receive accurate historical information through the act of integration. The skill does not resolve the character's historical ignorance; it works within it.
-- **Voice violations.** All integrated material passes through the POV character's established voice profile. If a historical reference would require a vocabulary or sentence structure inconsistent with the voice profile, it must be adapted or excluded.
+- **New historical events not recorded in Story State as historical Event nodes.** If relevant history is absent from Story State, return the draft unmodified and note the absence in `integration_log`. Do not invent history.
+- **New plot events.** The scene's structure — goal, obstacle, choice, consequence — is fixed. Integration adds texture; it does not advance the plot.
+- **Exposition blocks.** History is never delivered as an information dump. A character's internal monologue summarising a historical event for the reader's benefit is exposition. History enters through observation, fragment, association, and implication — not through summary.
+- **Corrected false beliefs.** If the knowledge matrix records the POV character as believing something historically false (`BELIEVES` status), the integration honours that false belief. The character does not receive accurate historical information through the act of integration.
+- **Voice violations.** All integrated material passes through the POV character's voice profile. If a historical reference would require a vocabulary or sentence structure inconsistent with the voice profile, it is adapted or excluded.
 
 ---
 
@@ -102,213 +156,130 @@ Every integrated element must pass through the same filter:
 
 The filter has three components:
 
-1. **Situational trigger:** What in the scene's current material — the physical setting, the conversation, another character's behaviour, the POV character's own action — activates the historical element? There must be a specific trigger. History does not arise from nowhere; it is called up by something present.
+1. **Situational trigger:** What in the scene's current material activates the historical element? There must be a specific trigger — history does not arise from nowhere.
 
-2. **Epistemic consistency:** Does the POV character have access to this historical knowledge? Module 1.2 and Module 3.3 (their cultural background) define the boundaries. They know what people from their background typically know; they do not know what their background did not teach them; they believe what their background taught them, even if it is false.
+2. **Epistemic consistency:** Does the POV character have access to this historical knowledge? Check the KNOWS edges and the Culture node's `religious_beliefs`, `key_customs`, and `core_values` — these establish what people of this background typically know.
 
-3. **Processing register:** How does this character experience historical memory? Some characters carry history analytically — they note the evidence and make inferences. Some carry it emotionally — the past surfaces as feeling before it surfaces as fact. Some carry it as cultural habit — proverbs and formulas that arise without full conscious recall. The voice profile specifies this; the integration must match it.
+3. **Processing register:** How does this character experience historical memory — analytically, emotionally, as cultural habit? The voice profile specifies this; the integration matches it.
 
 ---
 
 ## Boundary
 
-- **Operates on completed, POV-consistent scene or chapter drafts only.** Does not run on drafts that have not passed POV Consistency Maintenance.
-- **Does not introduce new plot events.** The scene's structure — its goal, obstacle, choice, consequence — is fixed before this skill is invoked. Integration adds to the prose's texture and depth; it does not change what happens.
-- **Does not create new history.** All historical and legendary content must already exist in Module 3.4. If the main agent wants to integrate history that is not yet in the World Bible, Module 3.4 must be updated first.
-- **Does not write complete in-world songs, poems, or extended oral texts** unless these already exist in Module 3.4 and the scene warrants full citation.
-- **Does not update the World Bible.** Output is a revised draft returned to the main agent. The main agent notes any new chapter references in Module 3.4's "Referenced in chapters" field.
+- **Operates on completed, POV-consistent scene or chapter drafts only.** Does not run on drafts that have not passed `pov-consistency-maintenance`.
+- **Does not introduce new plot events.** The scene's structure is fixed before this skill is invoked.
+- **Does not create new historical Event nodes.** All history integrated must already exist in Story State. If needed history is absent, note it and proceed without it.
+- **Does not write complete in-world songs, poems, or extended oral texts** unless these already exist in a historical Event node's fields.
+- **Does not write to the Story State KG.** Returns `referenced_events_to_update` in artifacts; the brain routes updates to `story_state_manager`.
 - **Does not correct false historical beliefs.** The POV character's epistemic state is honoured as-is.
 
 ---
 
 ## Invocation
 
-The main agent invokes Layering History and Legend:
+The `writing_subagent` invokes this skill when the brain delegates history integration:
 
-- After a scene or chapter draft has passed POV Consistency Maintenance (and Conflict Layering, if that was invoked).
-- Not after every scene — only when the scene's location, characters, or active themes intersect with relevant Module 3.4 material. Many scenes do not require this pass.
-- Not before Scene Construction or POV Consistency Maintenance. History integration happens after the scene's core prose is sound.
-- At the chapter level when the main agent judges that the completed chapter would benefit from a unified history integration pass rather than scene-by-scene passes.
+- After a scene or chapter draft has passed `pov-consistency-maintenance` (and `conflict-layering`, if that was invoked).
+- Not after every scene — only when the scene's location, characters, or active themes intersect with relevant historical Event or Culture records in Story State. Many scenes do not require this pass.
+- At the chapter level when the brain judges that the completed chapter would benefit from a unified history integration pass rather than scene-by-scene passes.
 
-**Standard post-scene-construction sequence when applicable:**  
-`Scene Construction → POV Consistency Maintenance → [Conflict Layering if needed] → Layering History and Legend → Self-Editing and Refinement`
+**Standard post-pov-consistency sequence when applicable:**
+`writing_subagent (scene-construction)` → `writing_subagent (pov-consistency-maintenance)` → `[writing_subagent (conflict-layering) if needed]` → `writing_subagent (layering-history-and-legend)` → `[brain routes referenced_events_to_update to story_state_manager]`
 
 ---
 
-## World Bible Interface
+## Story State Interface
 
-| Direction | Modules |
+| Direction | Details |
 |---|---|
-| **Reads from** (as excerpts provided by main agent) | Module 3.4 (History & Legends — relevant records), Module 3.3 (Cultures, Customs & Religion — cultures represented in the scene), Module 1.2 (Character Knowledge Matrix — POV character) |
-| **Main agent writes to** | Nothing — revised draft is returned to the main agent; the main agent may update Module 3.4's "Referenced in chapters" field to note where historical records have been cited in the prose |
+| **Queries from Story State KG** | KNOWS edges and KnowledgeItem nodes (POV character knowledge matrix); BELONGS_TO_CULTURE edges and Culture nodes (POV character and other characters in scene); historical Event nodes (`is_historical: true`); optionally Location node for scene setting. All queried with `as_of_chapter` |
+| **Returns in artifacts** | Revised draft with history integrated; `integration_log` documenting every candidate evaluated; `referenced_events_to_update` list. Brain routes Event node updates to `story_state_manager` |
 
 ---
 
 ## Dependencies
 
-**Upstream:** Scene or chapter draft must have passed **POV Consistency Maintenance**. Module 3.4, 3.3, and 1.2 must be current.
-**Downstream:** Revised draft proceeds to **Self-Editing and Refinement** (and ultimately **POV Consistency Auditing** at the chapter level). The revised draft replaces the base draft as the version of record.
+**Upstream:** Scene draft must have passed `pov-consistency-maintenance` — required in context. Historical Event, Culture, and KnowledgeItem nodes must be current in Story State KG.
+
+**Downstream:** Revised draft proceeds to the brain for quality gate review. After acceptance, the brain routes `referenced_events_to_update` to `story_state_manager` as `update_kg_node` calls (adding `chapter_context` to `properties.referenced_in_chapters` for each). The revised draft replaces the base draft as the version of record going into the Chapter node.
 
 ---
 
 ## Instructions
 
-### Step 1 — Read the base draft with the historical record in view
+### Step 1 — Query the Story State KG
 
-Read the scene or chapter draft. Simultaneously, read the relevant Module 3.4 records and the relevant Module 3.3 cultural records.
+Run all specified queries at `as_of_chapter = chapter_context`. Populate `kg_context_used`. Note which query types returned results.
 
-Do not begin integrating immediately. First, map the intersections: where in the draft's existing material does history already press on the scene, even implicitly? Where is the setting physically located within historical space? Which characters carry which cultural backgrounds? What is the scene's active conflict — and which historical events or legends resonate structurally with that conflict?
+### Step 2 — Read the base draft with the historical record in view
+
+Read the scene draft. Simultaneously, review the historical Event nodes and Culture nodes retrieved. Map the intersections: where in the draft does history already press on the scene, even implicitly? Where is the setting physically located within historical space? What cultural backgrounds are represented? What is the scene's active conflict — and which historical events or legends resonate structurally with it?
 
 Make a mental map of integration opportunities before writing a word.
 
-### Step 2 — Apply the filter to each candidate element
+### Step 3 — Apply the filter to each candidate element
 
-For each historical element that intersects with the scene, apply the three-component filter:
+For each historical element that intersects with the scene, apply all three filter components:
+- **Situational trigger:** Is there a specific trigger in the scene's present material that activates this element?
+- **Epistemic consistency:** What is the POV character's KNOWS status for this historical knowledge? If `DOES NOT KNOW`, they cannot reference it directly — but they may notice a physical remnant without knowing what it is.
+- **Processing register:** How would this character experience this element, as specified in their voice profile?
 
-*Situational trigger:* What in the scene's present material would activate this element? If there is no specific trigger — no moment where the physical setting, the conversation, or the character's action would naturally call this history up — do not integrate it here. Leave it for a scene where the trigger is organic.
+Rank candidate elements: organic (trigger is clear, integration is natural), marginal (plausible but not compelling), forced (no organic trigger). Integrate only organic elements. The iceberg principle applies — most history stays beneath the surface.
 
-*Epistemic consistency:* Does the POV character have access to this knowledge given Module 1.2 and their Module 3.3 cultural background? If they do not know this history, they cannot reference it directly — but they may notice the physical remnant without knowing what it is, or they may misidentify the artifact according to their own culture's interpretation.
+### Step 4 — Integrate physical remnants and setting
 
-*Processing register:* How would this character experience this historical element — analytically, emotionally, as cultural habit? The integration must match their voice profile.
+Enter through the POV character's perception of the physical space. Keep setting-based history brief — one or two sentences. A detail in the world, noticed, not explained.
 
-Rank the candidate elements: which integrations are organic (the scene would be richer for them, and the trigger is clear and natural), which are marginal (plausible but not compelling), and which are forced (no organic trigger)? Integrate only the organic ones. The iceberg principle applies: most of the history stays beneath the surface.
+A character who knows the history: notices the feature, understands its significance.
+A character who does not know the history: notices the feature as a feature, perhaps finds it strange. The reader may understand what the character does not — this is the iceberg working as it should.
 
-### Step 3 — Integrate physical remnants and setting
+### Step 5 — Integrate artifacts and objects
 
-If the scene's location has historical significance recorded in Module 3.4, integrate this through the POV character's perception of the physical space. The character notices something — a feature of the room or landscape — and their noticing carries whatever knowledge or ignorance they have about it.
+Enter through the POV character's relationship to the object: what they know about it (per knowledge matrix), what they believe about it (which may be false per `BELIEVES` status), what it makes them think. If two characters have different cultural relationships to the same object, render the asymmetry without resolving it.
 
-A character who knows the history: notices the feature, understands its significance, perhaps has a complex relationship with what it represents for their culture or faction.
+### Step 6 — Integrate legends, oral tradition, and conflicting interpretations
 
-A character who does not know the history: notices the feature as a feature, perhaps finds it strange or striking, does not understand what it is. The reader, holding Module 3.4, may understand what the character does not. This is one form of the history's iceberg — the reader sees more than the character.
+Enter through association or reference — not through summary. The character does not think "This reminds me of the legend of X, which says Y." The resonance surfaces more obliquely. Conflicting interpretations are most effective when rendered without resolution.
 
-Keep setting-based history brief. One or two sentences. A detail in the world, noticed, not explained.
+### Step 7 — Integrate backstory through specific memory
 
-### Step 4 — Integrate artifacts and objects
+A specific, sensory trigger in the scene's present material activates a brief, specific memory — one or two sentences. The past arrives as a flash and recedes. The memory must serve the scene's current content. It does not become the scene's dominant material.
 
-If an object with Module 3.4 significance is present in the scene, integrate its history through the POV character's relationship to the object: what they know about it, what they believe about it (which may be false), what it makes them think.
+### Step 8 — Review the integrated draft for organic quality
 
-If two characters in the scene have different cultural relationships to the object — if Module 3.3 records different cultural interpretations — render the POV character's relationship and, if possible, let the asymmetry surface in the scene's existing interaction without resolving it. Two people in the same room with the same object, carrying incompatible understandings of what it means, is stronger than any exposition about the object's history.
-
-### Step 5 — Integrate legend, oral tradition, and conflicting interpretations
-
-If the scene's active conflict or character dynamics rhyme with a Module 3.4 legend, and if the POV character's cultural background gives them access to some version of it, integrate through association or reference — not through summary.
-
-The character does not think, "This reminds me of the legend of X, which says Y." They experience the resonance more obliquely: "Something in the way this was going reminded him of a story he'd been told as a child, though the story ended worse." Or another character references the legend from their factional interpretation, and the POV character registers that the reference means something different in their own tradition.
-
-Conflicting interpretations are most effective when rendered without resolution — the reader understands that there are two versions, the characters do not acknowledge it because to them it is simply what happened, and the tension between the interpretations adds to the scene's existing interpersonal conflict without requiring explanation.
-
-### Step 6 — Integrate backstory through specific memory
-
-If a moment in the scene's present material — a sensory detail, a word, a gesture — provides a genuine trigger for a relevant character backstory element, integrate a brief, specific memory intrusion.
-
-Brief means: one or two sentences. Specific means: a particular image or moment from the past, not a summary of a period or a relationship. The past arrives as a flash and recedes; it does not become the scene's dominant material.
-
-The memory must serve the scene's current content — it deepens the character's response to the present moment; it does not replace the present moment with a past one.
-
-### Step 7 — Review the integrated draft for organic quality
-
-Read the complete revised draft. For each integrated element, ask:
-
+Read the complete revised draft. For each integrated element, verify:
 - Does the integration feel like the character's natural perception and memory, or does it feel like a planted worldbuilding note?
-- Did the history stop the scene — did the reader have to pause the scene's forward movement to receive historical information?
-- Is the integrated element consistent with Module 1.2's knowledge state and Module 3.3's cultural record?
-- Did any integration create a new plot event that was not in the base draft?
+- Did the history stop the scene — did the reader have to pause to receive information?
+- Is the integrated element consistent with the knowledge matrix and Cultural background?
+- Did any integration introduce a new plot event?
 
 Remove or rewrite any integration that fails these tests. An unintegrated element is better than a forced one.
 
-### Step 8 — Return the revised draft
+### Step 9 — Assemble and return artifacts
 
-Return the complete revised draft to the main agent. The prose is the output — no annotation of what was changed, no structural notes. If any Module 3.4 records were cited for the first time in this draft, note this briefly so the main agent can update the "Referenced in chapters" field.
+Return the complete artifacts dict with `status: "success"`. `revised_draft` is the full prose text. `integration_log` records every candidate evaluated. `referenced_events_to_update` lists historical Event nodes whose `referenced_in_chapters` should now include `chapter_context`.
 
 ---
 
 ## Example
 
-### Input shape
-
-```
-Base draft excerpt (Caradhen POV, meeting with Vara in the old solar of the
-Thornback hall):
-
-  The solar had one door and three windows, and Vara had seated herself where
-  she could see all of them.
-  [... scene continues ...]
-  He watched her right hand. Her right hand did not move.
-  "That isn't what I asked," she said, pleasantly.
-  "No," he said. "It isn't."
-
-Module 3.4 excerpt (relevant records):
-  Event: The Thornback Compact.
-  Believed account: A truce signed in this hall, in the solar now used for
-    private meetings, that ended thirty years of border war between Caradhen's
-    ancestors and the kingdom to the south.
-  Factional interpretation — Thornback clans: The Compact was the last act
-    of a great lord who understood that survival requires knowing when to stop
-    fighting.
-  Factional interpretation — kingdom historians: The Compact was a surrender
-    dressed as diplomacy; the Thornback clansmen were exhausted and had no
-    choice.
-  Physical remnants: The table in the solar is the original treaty table.
-    The document itself is gone; only the table remains.
-
-Module 3.3 excerpt (Thornback culture):
-  Core values: Survival; the preservation of the passes; loyalty to kin over
-    loyalty to cause.
-  Relationship to history: History is preserved as oral tradition and
-    practical lesson, not written record. The Thornback do not write their own
-    history; it is carried in memory and in objects.
-
-Module 1.2 (Caradhen):
-  KNOWS: This is the treaty table. His father told him the story.
-  BELIEVES (possibly false): The Compact was a great act of strategic wisdom.
-  DOES NOT KNOW: Kingdom historians interpret the Compact as a surrender.
-```
-
-### Output shape (revised excerpt)
-
-```
-The solar had one door and three windows, and Vara had seated herself where
-she could see all of them.
-
-He had not offered her any other chair. There were three in the room. She
-had chosen the one that faced the door. He filed this.
-
-The table between them was old — older than the hall as it currently stood,
-older than his father's father. The grain of the wood had the specific
-smoothness of a surface that had been touched ten thousand times by hands that
-knew what it was. His father had told him: this is where the Compact was
-signed. He had been seven. He had put his hand flat on the table to see if
-he could feel it.
-
-He still thought about that sometimes — the seven-year-old's idea that
-history was something you could put your hand on.
-
-[... scene continues unchanged ...]
-
-He watched her right hand. Her right hand did not move.
-
-"That isn't what I asked," she said, pleasantly.
-
-"No," he said. "It isn't."
-
-He looked at the table. His ancestor had sat at this table and understood,
-his father said, when to stop fighting. He was not sure, anymore, that
-"stop fighting" and "surrender" were as different as the story had insisted.
-```
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ---
 
 ## Quality Checks
 
-Before returning the revised draft, verify:
+Before returning output, verify:
 
 - [ ] Every integrated element has a specific situational trigger — it is not inserted, it is called up by something in the scene.
-- [ ] Every integrated element passed the epistemic consistency check against Module 1.2 — the POV character only knows what Module 1.2 and their cultural background give them access to.
-- [ ] False historical beliefs (BELIEVE status in Module 1.2) are honoured — the character carries their false version, not the true account.
-- [ ] No exposition blocks — history enters as observation, fragment, association, or implication; never as summary delivered for the reader's benefit.
-- [ ] No new plot events introduced — the scene's structure (goal, obstacle, choice, consequence) is unchanged.
-- [ ] All integrated material passes through the POV character's voice profile — vocabulary, rhythm, processing register all consistent.
-- [ ] Integration is selective — not all available Module 3.4 material is used; only what the scene organically absorbs.
+- [ ] Every integrated element passed the epistemic consistency check against the knowledge matrix.
+- [ ] False historical beliefs (`BELIEVES` status) are honoured — the character carries their false version, not the true account.
+- [ ] No exposition blocks — history enters as observation, fragment, association, or implication; never as summary.
+- [ ] No new plot events introduced — the scene's structure is unchanged.
+- [ ] All integrated material passes through the POV character's voice profile.
+- [ ] Integration is selective — not all available historical Event records are used; only what the scene organically absorbs.
 - [ ] The scene's forward movement is not stopped by any integrated element.
-- [ ] No new history created outside Module 3.4 records.
-- [ ] No World Bible writes specified.
+- [ ] No new history invented outside existing historical Event nodes.
+- [ ] `referenced_events_to_update` is populated for every historical Event cited in the revised draft (or empty array if none).
+- [ ] `integration_log` records every candidate evaluated, including those rejected.
+- [ ] No Story State KG writes from this skill — updates routed via `referenced_events_to_update` to brain for `story_state_manager`.

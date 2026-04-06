@@ -1,192 +1,281 @@
 ---
 name: character-creation
-description: Builds the full character iceberg from a character concept — visible surface (physical, social) and the hidden 90% (core wound, fears, desires, arc type, contradictions, values, response patterns). Invoked by the main agent after Character Conception has produced a validated concept. Outputs a complete character record for World Bible Modules 1.1, 1.2, and 1.3.
+description: Builds the full character iceberg from a character concept — visible surface (physical, social) and the hidden 90% (core wound, fears, desires, arc type, contradictions, values, response patterns). Invoked by the character_subagent after character-conception has produced a validated concept. Queries Story State KG for world context if building against an established world. Returns a complete character record in artifacts structured for persistence via story_state_manager into Story State Modules 1.1, 1.2, and 1.3.
 ---
 
 # Character Creation
 
 ## Identity
 
-**Purpose:** Transform a character concept into a fully developed character using the iceberg principle. Build everything — ten times more than will appear on the page — so that what does appear is supported by a fully realised interior life. Output the complete character record used to populate World Bible Modules 1.1, 1.2 (initial), and 1.3 (initial).
+**Purpose:** Transform a character concept into a fully developed character using the iceberg principle. Build everything — ten times more than will appear on the page — so that what does appear is supported by a fully realised interior life. Return KG-ready records in artifacts for Story State Modules 1.1, 1.2 (initial entries), and 1.3 (initial entries).
 
 ---
 
 ## Core
 
-Build the full character iceberg from an already-conceived character concept. The visible surface is physical description and social context. The hidden 90% is the psychological interior: core wound, fears, desires, arc type, contradictions, values under pressure, and response patterns across event categories. Output a complete character record. Do not place the character in the plot.
+Build the full character iceberg from an already-conceived character concept. The visible surface is physical description and social context. The hidden 90% is the psychological interior: core wound, fears, desires, arc type, contradictions, values under pressure, and response patterns across event categories. Return KG-ready node and edge records in artifacts. Do not place the character in the plot.
 
 ---
 
 ## Input
 
-The main agent provides:
+### From brain context (`worker_request.context`)
 
-1. **Character concept document** from Character Conception — role, core contradiction, one-paragraph sketch, open questions.
-2. *(Optional)* **Research material** from Research Integration, if the character's social role (e.g. a specific religious order, military rank, cultural practice) requires factual grounding for authenticity.
+1. **`character_concept`** — The full concept document from `character-conception` artifacts of the prior delegation. Contains: assigned narrative role, generation method, core contradiction, sketch, open questions, provisional flag (if early invocation), `kg_context_used`. Required.
 
-> **Note:** Character Creation does not receive World Bible excerpts directly. It works from the concept document only. The main agent handles all World Bible reads and writes.
+2. **`chapter_context`** — Current chapter number. Used to scope KG queries. Required.
+
+3. **`research_output`** (optional) — Structured research notes from a prior `research-integration` delegation, if the character's social role (e.g. a specific religious order, military rank, cultural practice) requires factual grounding for authenticity.
+
+4. **`feedback`** (optional) — Correction directive from the brain if this is a re-delegation after a rejected artifact. The brain passes specific issues identified during the quality gate; this skill addresses them in the revised output.
+
+### Fetched from Story State KG
+
+The character_subagent queries the Story State KG to ground the character record in the established world:
+
+```
+# World context for social position and faction placement
+query_kg_nodes({type: "Faction"}, as_of_chapter=chapter_context)
+query_kg_nodes({type: "Culture"}, as_of_chapter=chapter_context)
+query_kg_nodes({type: "Location"}, as_of_chapter=chapter_context)
+
+# Existing characters — for pre-story relationship records (Module 1.3)
+query_kg_nodes({type: "Character"}, as_of_chapter=chapter_context)
+
+# Existing knowledge items — to initialise knowledge matrix sensibly
+query_kg_nodes({type: "KnowledgeItem"}, as_of_chapter=chapter_context)
+```
+
+If the concept was produced in early invocation mode (world records do not yet exist), these queries will return empty results. Proceed with empty context — the `provisional_flag` in the concept document already notes this. Initial Module 1.2 and 1.3 entries will be minimal and flagged for expansion after Worldbuilding is persisted.
 
 ---
 
 ## Output
 
-A **complete character record** structured to populate the following World Bible modules:
+All output is returned in `artifacts` as KG-ready records, structured for direct insertion by `story_state_manager`. The brain applies the quality gate before routing to `story_state_manager`.
 
-### For Module 1.1 — Character Directory
+### `artifacts` structure
 
-- **Identity:** Full name, aliases, age, gender, physical description (what is immediately observable; what is habitually concealed or ignored by others).
-- **Social position:** Faction, rank, occupation, public reputation vs. private reality.
-- **Location:** Current location at story start.
-- **Surface beliefs:** What the character says they believe and value.
-- **Hidden psychology (the iceberg):**
-  - **Core wound:** The specific formative event or condition (not a vague backstory category, a specific thing that happened or was done to them, and what conclusion the character drew from it — which may be wrong).
-  - **Core desire:** What this character wants above all other things — the thing that drives every decision, even when they cannot name it themselves.
-  - **Core fear:** What they are most protecting themselves from. Often the inverse of the core desire, or the price they believe desire costs.
-  - **Self-deception:** What they believe about themselves that is false, and what that false belief allows them to do or avoid.
-  - **Values under pressure:** What they claim to value vs. which values they actually honour when the cost is real. Where loyalty breaks. Where principle yields to survival. Where survival yields to something they cannot name.
-  - **Contradictions:** Two or three specific contradictions in their behaviour — things they do that are inconsistent with their stated values, that reveal the gap between who they think they are and who they are.
-  - **Response patterns:** How this character responds to the following event categories: betrayal, loss, sudden power, helplessness, unwanted intimacy, being correctly seen by another person, unexpected kindness from an enemy.
-- **Arc type:** Which arc category best describes the character's trajectory: Transformation (genuine change of core value or belief), Revelation (the character is always who they are; the reader — and possibly the character — discovers it), Corruption (movement toward a worse version), Disintegration (structural collapse under pressure), Steadfastness (holds while the world and other characters change around them). Note: arc type is a starting hypothesis, not a locked outcome. The Gardener principle applies — character logic overrides arc planning.
-- **Arc stage at story start:** Where in the arc the character begins.
-- **POV eligible:** Yes / No, and brief justification.
-- **POV count:** 0 at creation (updated by main agent as chapters are written).
+```json
+{
+  "character_node": {
+    "logical_id": "char_<slug>",
+    "node_type": "Character",
+    "chapter": 0,
+    "properties": {
+      "full_name": "<including titles and aliases>",
+      "aliases": ["<list>"],
+      "age": 0,
+      "gender": "<string>",
+      "physical_description": "<what is immediately observable; what is habitually overlooked>",
+      "faction": "<faction name>",
+      "rank": "<title or role>",
+      "occupation": "<string>",
+      "public_vs_private_reputation": "<how they are seen vs. who they are>",
+      "location": "<starting location>",
+      "surface_beliefs": ["<what the character says they believe>"],
+      "core_wound": "<specific event and the conclusion the character drew from it>",
+      "core_desire": "<what they want above all other things>",
+      "core_fear": "<what threatens to reopen the wound>",
+      "self_deception": "<what they believe about themselves that is false>",
+      "values_under_pressure": ["<stated values vs. actual behaviour under real cost>"],
+      "contradictions": ["<specific behavioural contradictions, not trait labels>"],
+      "response_patterns": {
+        "betrayal": "<how they respond>",
+        "loss": "<how they respond>",
+        "sudden_power": "<how they respond>",
+        "helplessness": "<how they respond>",
+        "unwanted_intimacy": "<how they respond>",
+        "being_correctly_seen": "<how they respond>",
+        "unexpected_kindness_from_enemy": "<how they respond>"
+      },
+      "arc_type": "Transformation | Revelation | Corruption | Disintegration | Steadfastness",
+      "arc_stage": "<where in the arc they begin>",
+      "pov_eligible": true,
+      "pov_chapter_count": 0,
+      "last_pov_chapter": null,
+      "injuries_physical_state": [],
+      "emotional_state": "<dominant emotional state at story start>"
+    }
+  },
+  "knowledge_matrix_edges": [
+    {
+      "logical_id": "knows_<char_slug>_<item_slug>",
+      "edge_type": "KNOWS",
+      "from_node": "char_<slug>",
+      "to_node": "ki_<slug>",
+      "chapter": 0,
+      "properties": {
+        "status": "KNOWS | BELIEVES | SUSPECTS | DOES NOT KNOW",
+        "acquired_at_chapter": 0,
+        "source": "<how they came to know this>",
+        "dramatic_irony_flag": false
+      }
+    }
+  ],
+  "knowledge_items": [
+    {
+      "logical_id": "ki_<slug>",
+      "node_type": "KnowledgeItem",
+      "chapter": 0,
+      "properties": {
+        "description": "<the specific fact, secret, or belief>"
+      }
+    }
+  ],
+  "relationship_edges": [
+    {
+      "logical_id": "rel_<char_a_slug>_<char_b_slug>",
+      "edge_type": "RELATIONSHIP",
+      "from_node": "char_<slug>",
+      "to_node": "char_<other_slug>",
+      "chapter": 0,
+      "properties": {
+        "emotional_valence": "<love | hate | fear | debt | respect | contempt | loyalty | distrust | etc.>",
+        "power_dynamic": "<who holds leverage and why>",
+        "history": "<formative events and turning points>",
+        "secrets_kept": ["<what this character conceals from the other>"],
+        "trajectory": "Stable | Deteriorating | Evolving | Volatile",
+        "convergence_potential": "<whether and when direct contact is likely>",
+        "most_recent_interaction": null
+      }
+    }
+  ],
+  "culture_edge": {
+    "logical_id": "culture_<char_slug>",
+    "edge_type": "BELONGS_TO_CULTURE",
+    "from_node": "char_<slug>",
+    "to_node": "culture_<slug>",
+    "chapter": 0,
+    "properties": {
+      "role": "<their role within this culture>"
+    }
+  },
+  "arc_type_note": "<reasoning for the assigned arc type — hypothesis, not locked outcome>",
+  "provisional_expansion_flag": false,
+  "provisional_expansion_notes": "<present only if early invocation; notes which fields need expansion after Worldbuilding>"
+}
+```
 
-### For Module 1.2 — Character Knowledge Matrix (initial entries)
+**Logical ID convention:**
+- Character: `char_<firstname_lastname_slug>` e.g. `char_jon_snow`
+- KnowledgeItem: `ki_<brief_description_slug>` e.g. `ki_cersei_execution_plan`
+- KNOWS edge: `knows_<char_slug>_<item_slug>`
+- RELATIONSHIP edge: `rel_<char_a_slug>_<char_b_slug>`
 
-At creation, record only what the character **knows** as established background facts — not story events, which will be populated by the main agent as the narrative progresses.
-
-- **KNOWS:** Background facts established in the character record (e.g. knows their own history, knows the political situation as they understand it at story start, knows their faction's position).
-- **BELIEVES (possibly false):** Record the character's self-deception and any established false beliefs about the world as formal BELIEVES entries, so Knowledge Matrix violations can be caught later.
-- **SUSPECTS:** Leave blank at creation unless the concept document established specific suspicions.
-- **DOES NOT KNOW:** Leave blank at creation; populated as story events occur.
-
-> The main agent uses this output to initialise Module 1.2. Chapter and source fields will be filled in as writing progresses.
-
-### For Module 1.3 — Relationship Records (initial entries)
-
-At creation, record only **pre-story relationships** — people this character has a history with before the narrative begins. For each:
-
-- Other character (name)
-- Relationship type (directional)
-- Valence (positive / negative / complex / unknown)
-- Power dynamic
-- Relevant history (brief)
-- Known secrets between them
-
-> Leave trajectory, convergence potential, and active-story fields blank. The main agent populates these during Character Integration with Plot.
+`relationship_edges` covers only **pre-story relationships** established in the concept document or visible in existing Character nodes. Active-story relationship entries are added by `character-integration-with-plot`. `knowledge_matrix_edges` covers only background facts and established false beliefs at story start.
 
 ---
 
 ## Boundary
 
-- **Does not** generate a character concept. Character Conception must be run first.
-- **Does not** place the character in plot events, assign them to scenes, or define their role in specific story beats. That is Character Integration with Plot's domain.
+- **Does not** generate a character concept. `character-conception` must run first.
+- **Does not** place the character in plot events, assign them to scenes, or define their role in specific story beats. That is `character-integration-with-plot`.
 - **Does not** write prose featuring this character.
-- **Does not** define narrative voice or POV register. That is Character Voice Differentiation's domain.
-- **Does not** update the World Bible directly. The main agent writes Modules 1.1, 1.2 (initial), and 1.3 (initial) using this skill's output.
+- **Does not** define narrative voice or POV register. That is `character-voice-differentiation`.
+- **Does not** write to the Story State KG. Returns KG-ready records in artifacts for `story_state_manager` to insert.
 
 ---
 
 ## Invocation
 
-The main agent invokes Character Creation:
+The `character_subagent` invokes this skill when the brain delegates full character construction, immediately after `character-conception` artifacts have passed the quality gate and the concept document is available in context.
 
-- Immediately after Character Conception has produced a validated concept document.
-- Any time a previously minor character is being elevated to a significant or POV role and requires a full iceberg to support that function.
-
-Character Creation is always invoked after Character Conception. It is never invoked without a concept document.
+This skill is always invoked after `character-conception`. It is never invoked without a concept document.
 
 ---
 
-## World Bible Interface
+## Story State Interface
 
-| Direction | Modules |
-|-----------|---------|
-| **Reads from** (as excerpts provided by main agent) | Nothing — works from concept document only |
-| **Main agent writes to** | Module 1.1 (Character Directory), Module 1.2 (initial Knowledge Matrix entries), Module 1.3 (initial Relationship Records) |
+| Direction | Details |
+|---|---|
+| **Queries from Story State KG** | Faction, Culture, Location nodes (world context for social position); Character nodes (for pre-story relationship records); KnowledgeItem nodes (to initialise knowledge matrix sensibly). All queried with `as_of_chapter`. Empty results are expected and handled at project start |
+| **Returns in artifacts** | KG-ready Character node record; KnowledgeItem node records; KNOWS edge records (Module 1.2 initial entries); RELATIONSHIP edge records (Module 1.3 initial entries); BELONGS_TO_CULTURE edge record. Brain routes to `story_state_manager` for persistence |
 
 ---
 
 ## Dependencies
 
-**Upstream:** **Character Conception** — this skill requires the character concept document (role, core contradiction, sketch, open questions) as its primary input.  
-**Downstream:** Output is used by **Character Voice Differentiation** (reads Module 1.1 to define voice profile) and **Character Integration with Plot** (reads Modules 1.1, 1.2, 1.3 to build desire→action→consequence loops and relationship matrix).
+**Upstream:** Brain provides `character_concept` from prior `character-conception` artifacts. Brain provides `chapter_context` for KG query scoping.
+
+**Downstream:** Persisted Character node enables `character-voice-differentiation` (reads Character node properties via KG query) and `character-integration-with-plot` (reads full character records and relationship records).
 
 ---
 
 ## Instructions
 
-Follow these steps when executing this skill.
+### Step 1 — Answer the open questions from the concept
 
-### Step 1 — Answer the open questions from Character Conception
+The concept document includes 3–5 open questions. Answer each one before building the character record. These answers are the foundation of the iceberg. Push toward specificity and toward answers that complicate the character rather than resolve them.
 
-The concept document includes 3–5 open questions. Answer each one before building the character record. These answers are the foundation of the iceberg. Do not default to convenient or familiar answers — push toward specificity and toward answers that complicate the character rather than resolve them.
+### Step 2 — Query the Story State KG
 
-### Step 2 — Build the core wound
+Run the specified queries with `as_of_chapter = chapter_context`. Review:
+- Faction nodes: what social positions and power structures exist to place this character within
+- Culture nodes: which culture does this character belong to; what does membership mean for them
+- Character nodes: which existing characters have pre-story relationships with this one
+- KnowledgeItem nodes: which existing knowledge items does this character have access to at story start
 
-The core wound is not a backstory event. It is a specific experience — something that happened, or that was systematically done or withheld — and the **conclusion** the character drew from it. That conclusion shapes every subsequent choice. The conclusion may be wrong. It is often wrong. Record:
+If early invocation mode is indicated by `provisional_flag.present = true` in the concept, these queries will return empty results. Note this and proceed.
+
+### Step 3 — Build the core wound
+
+The core wound is not a backstory event. It is a specific experience and the **conclusion** the character drew from it. That conclusion shapes every subsequent choice. The conclusion may be wrong — it often is. Record:
 
 - What happened (specific; not categorical).
 - What the character concluded about themselves, other people, or the world as a result.
-- How that conclusion has been *useful* to the character — core wounds persist because they protect something.
+- How that conclusion has been *useful* — core wounds persist because they protect something.
 
-### Step 3 — Derive desire, fear, and self-deception from the wound
+### Step 4 — Derive desire, fear, and self-deception from the wound
 
 The core wound produces:
-- **Core desire:** What the character is trying to get or become in order to never have that wound reopened.
+- **Core desire:** What the character is trying to get or become so that wound is never reopened.
 - **Core fear:** What threatens to reopen it.
-- **Self-deception:** What they have to believe about themselves in order to pursue the desire without confronting the fear directly.
+- **Self-deception:** What they must believe about themselves to pursue the desire without confronting the fear directly.
 
 These three must be internally consistent and derived from the wound — not selected from a list of interesting traits.
 
-### Step 4 — Build the visible surface
+### Step 5 — Build the visible surface
 
 Physical description: what is immediately observable, and what is habitually overlooked or misread by others. Avoid a list of physical attributes; focus on what the character's body communicates and conceals.
 
-Social position: what role they occupy, what reputation precedes them, and where reality diverges from reputation.
+Social position: what role they occupy, what reputation precedes them, and where reality diverges from reputation. Ground this in the Faction and Location nodes returned by the KG query.
 
-### Step 5 — Define values under pressure and contradictions
+### Step 6 — Define values under pressure and contradictions
 
-A character's stated values are their identity. Their values under pressure are who they actually are. Identify:
+Identify two or three moments of type — situations where this character would say one thing and do another, not out of hypocrisy but out of genuine conflict between their stated self and their actual psychology. State these as contradictions, not as hypocrisy. The character may not be aware of them.
 
-- Two or three moments of type — situations where this character would say one thing and do another, not out of hypocrisy but out of the genuine conflict between their stated self and their actual psychology.
-- State these as contradictions, not as hypocrisy. The character may not be aware of them.
+### Step 7 — Map response patterns
 
-### Step 6 — Map response patterns
+For each of the seven event categories, specify how this specific character — not a type, not a role — would respond. These patterns will be used by `gardener-plotting-system` and `scene-construction` to ensure character-driven decisions remain consistent under extreme pressure.
 
-For each event category below, specify how this character specifically — not a type, not a role — would respond:
+### Step 8 — Assign arc type and starting stage
 
-- Betrayal by someone trusted
-- Sudden loss (person, status, home)
-- Acquisition of unexpected power or leverage
-- Helplessness / complete loss of agency
-- Unwanted intimacy — someone getting emotionally closer than they want
-- Being correctly seen — someone understanding them more accurately than they want to be understood
-- Unexpected kindness from someone they have written off as an enemy
+Select the arc type that best fits the character's setup and state where they begin. Be explicit that this is a hypothesis — the Gardener principle means character logic overrides arc planning. Record the reasoning so it can be revisited if the arc evolves.
 
-These patterns will be used in Scene Construction and by the Gardener Plotting System to ensure character-driven decisions remain consistent even under extreme pressure.
+### Step 9 — Build initial knowledge matrix entries
 
-### Step 7 — Assign arc type and starting stage
+Construct KnowledgeItem nodes and KNOWS edges for:
+- **KNOWS entries:** Background facts the character knows — their own history, the political situation as they understand it at story start.
+- **BELIEVES (possibly false) entries:** The character's self-deception and any established false beliefs about the world as formal BELIEVES entries, so KG contradiction detection can flag violations later.
 
-Select the arc type that best fits the character's setup, and state where they begin. Be explicit that this is a hypothesis — the Gardener principle means character logic overrides arc planning. Record the reasoning for the assignment so it can be revisited if the arc evolves.
+Leave SUSPECTS and DOES NOT KNOW entries blank at creation; these are populated as story events occur.
 
-### Step 8 — Populate initial Knowledge Matrix entries (Module 1.2)
+### Step 10 — Record pre-story relationship edges
 
-Record the character's background knowledge and established false beliefs as KNOWS and BELIEVES entries. Do not attempt to pre-populate SUSPECTS or DOES NOT KNOW — these are narrative discoveries, not creation-time knowledge.
+For every significant pre-existing relationship — visible in existing Character nodes or established in the concept document — construct a RELATIONSHIP edge record. Include: other character logical_id, valence, power dynamic, history, secrets kept. Leave trajectory field minimal; `character-integration-with-plot` expands these.
 
-### Step 9 — Record pre-story relationships (Module 1.3)
+Relationship edges are directional. If building two records (A→B and B→A), include both in `relationship_edges`.
 
-For every significant pre-existing relationship, record the minimum required fields: other character, type, valence, power dynamic, history, secrets. Leave trajectory and active-story fields blank.
+### Step 11 — Assemble and return artifacts
 
-### Step 10 — Return the complete character record
-
-Return the full record to the main agent. The main agent updates Modules 1.1, 1.2, and 1.3.
+Assemble the full artifacts dict with all KG-ready records. Set `status: "success"`. If this was built in early invocation context (empty world records), set `provisional_expansion_flag = true` and note which fields need expansion once Worldbuilding records exist in the Story State KG.
 
 ---
 
 ## Example
 
-For a worked example of input and output, see [examples.md](examples.md).
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ---
 
@@ -199,7 +288,10 @@ Before returning output, verify:
 - [ ] Contradictions are behaviourally specific — not trait labels.
 - [ ] Response patterns are character-specific — not generic.
 - [ ] Arc type is stated as a hypothesis with justification.
-- [ ] Module 1.2 initial entries cover only background knowledge and established false beliefs.
-- [ ] Module 1.3 initial entries cover only pre-story relationships.
-- [ ] No World Bible writes specified in the skill — output returned to main agent for writing.
+- [ ] All seven response pattern categories are populated.
+- [ ] `character_node.properties` contains all required fields — no nulls except `last_pov_chapter`.
+- [ ] Knowledge matrix entries cover only background knowledge and established false beliefs — no story event knowledge.
+- [ ] Relationship edges cover only pre-story relationships.
+- [ ] All logical IDs follow the naming convention.
+- [ ] No Story State KG writes from this skill — all output in artifacts for story_state_manager.
 - [ ] No prose scenes written. No plot placement made.

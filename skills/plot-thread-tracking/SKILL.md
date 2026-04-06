@@ -1,238 +1,307 @@
 ---
 name: plot-thread-tracking
-description: Maintains and reports on the registry of active, dormant, and resolved plot threads. Flags threads approaching overdue payoff windows. Identifies convergence opportunities across threads. Invoked at chapter boundaries, at convergence checkpoints, and when the main agent needs a structural health check on the story's thread load. Outputs a thread status report only — does not resolve threads or write scenes.
+description: Maintains and reports on the registry of active, dormant, and resolved plot threads. Flags threads approaching overdue payoff windows. Identifies convergence opportunities. In convergence mode, performs a dedicated sweep of all Armed consequence bombs against their detonation triggers. Queries Story State KG directly for PlotThread nodes, Payoff nodes, and (in convergence mode) CascadeChain nodes. Returns a thread status report in artifacts. Invoked at chapter boundaries, at convergence checkpoints, and when the brain needs a structural health check.
 ---
 
 # Plot Thread Tracking
 
 ## Identity
 
-**Purpose:** Give the main agent a clear picture of the story's full thread load at any point — what is active, what is dormant, what is approaching resolution, what is overdue, and what threads are moving toward each other in ways that could be developed or that must be managed. No thread is dropped; all setups have payoffs; this skill is the mechanism that ensures both.
+**Purpose:** Give the brain a clear picture of the story's full thread load at any point — what is active, what is dormant, what is approaching resolution, what is overdue, and what threads are moving toward each other in ways that could be developed or must be managed. No thread is dropped; all setups have payoffs; this skill is the mechanism that ensures both.
 
 ---
 
 ## Core
 
-Maintain and report on the registry of active, dormant, and resolved threads. Flag threads approaching overdue payoff windows. Identify convergence opportunities. Output a thread status report — current state of all threads, overdue flags, convergence opportunities. Does not resolve threads. Does not write scenes.
+Query and report on the registry of active, dormant, and resolved threads. Flag threads approaching overdue payoff windows. Identify convergence opportunities. In convergence mode, perform the bomb sweep. Return a thread status report. Does not resolve threads. Does not write scenes.
 
 ---
 
 ## Input
 
-The main agent provides:
+### From brain context (`worker_request.context`)
 
-1. **World Bible excerpt — Module 2.3 (Plot Thread Registry):** The complete thread registry — all active, dormant, resolved, and abandoned threads, with their status, origin chapter, characters involved, expected convergence windows, dependencies, and resolution summaries.
+1. **`chapter_context`** — Current chapter number. Used to scope all KG queries and assess which threads are within, approaching, or past their convergence windows. Required.
+2. **`convergence_mode`** (boolean, default `false`) — If `true`, the plotting_subagent also queries CascadeChain nodes to perform the convergence-phase bomb sweep (Section 4a of the original skill). The brain sets this when invoking the Convergence Checkpoint.
+3. **`endpoint_compass`** (optional) — Milestones from `defining-rough-endpoints`. Passed by the brain when approaching a milestone, to assess whether threads required by that milestone are sufficiently developed.
+4. **`window_lookahead`** (optional, integer, default `5`) — Number of chapters ahead to consider when flagging threads as "approaching window." Adjustable for longer or shorter look-ahead horizons.
 
-2. **World Bible excerpt — Module 2.4 (Pending Payoffs & Foreshadowing):** All setup elements — Chekhov's guns, foreshadowing, consequence bombs, prophecies, in-world legends — with their planted chapter, expected payoff window, and resolution status. **Consequence bombs with type "Consequence bomb" and priority tier "Essential" are registered here by the main agent (via Consequence Cascade Implementation output) so they are visible to this skill's convergence-phase sweep.**
+### Fetched from Story State KG
 
-3. *(Optional)* **Current chapter number** — so the skill can assess which threads and payoffs are approaching, within, or past their expected windows.
+The plotting_subagent queries the Story State KG directly:
 
-4. *(Optional)* **Endpoint compass** — the milestones from Defining Rough Endpoints. If the main agent is approaching a narrative milestone, thread status is assessed against whether the threads required by that milestone are sufficiently developed to support it.
+```
+# Complete plot thread registry — all statuses
+query_kg_nodes({type: "PlotThread"},
+               as_of_chapter=chapter_context)
 
-5. *(Convergence mode — required when in or approaching convergence phase)* **World Bible excerpt — Module 4.2 (Time-Delayed Consequence Bombs):** The full list of Armed consequence bombs. In convergence mode, this skill cross-references Module 4.2 against Module 2.4 to ensure all Essential Armed bombs are accounted for in the Pending Payoffs register, and flags any Essential bombs that are Armed but have no visible path to detonation before the ending.
+# Pending payoffs and foreshadowing — all unresolved setups
+query_kg_nodes({type: "Payoff",
+                "properties.resolution_status": {"$in": ["Pending", "Overdue"]}},
+               as_of_chapter=chapter_context)
 
-> **Note:** This skill receives excerpts from the main agent. It does not access the World Bible directly.
+# DEPENDS_ON edges — thread dependencies
+query_kg_edges({type: "DEPENDS_ON"},
+               as_of_chapter=chapter_context)
+
+# INVOLVES edges — characters and events per thread
+query_kg_edges({type: "INVOLVES"},
+               as_of_chapter=chapter_context)
+
+# PAYS_OFF_IN edges — payoffs that have been resolved
+query_kg_edges({type: "PAYS_OFF_IN"},
+               as_of_chapter=chapter_context)
+
+# Convergence mode only:
+query_kg_nodes({type: "CascadeChain"},
+               as_of_chapter=chapter_context)
+# Also fetch armed Payoff nodes of type "Consequence bomb":
+query_kg_nodes({type: "Payoff",
+                "properties.type": "Consequence bomb",
+                "properties.resolution_status": "Pending"},
+               as_of_chapter=chapter_context)
+```
 
 ---
 
 ## Output
 
-**Thread status report** — a structured document containing:
+All output is returned in `artifacts`. Thread status report is pure analysis — no KG persistence needed. However, the brain may use the report to update thread status fields (e.g. reclassifying Unclassified consequence bombs) via `story_state_manager` if the report recommends it.
 
-### 1. Thread Load Summary
+### `artifacts` structure
 
-A quick-scan overview of the current thread registry:
-- Total threads: [N]
-- Active: [N]
-- Dormant: [N]
-- Resolved: [N]
-- Abandoned: [N]
-- Overdue (past expected convergence window): [N]
-- Approaching window (within estimated 3–5 chapters): [N]
+```json
+{
+  "thread_load_summary": {
+    "total": 0,
+    "active": 0,
+    "dormant": 0,
+    "resolved": 0,
+    "abandoned": 0,
+    "overdue": 0,
+    "approaching_window": 0
+  },
+  "active_thread_status": [
+    {
+      "thread_id": "thread_<slug>",
+      "thread_name": "<n>",
+      "characters_involved": ["char_<slug>"],
+      "current_status_within_thread": "<where this thread currently sits narratively>",
+      "expected_convergence_window": "<rough chapter range or condition>",
+      "track_status": "On track | At risk | Overdue",
+      "dependencies": ["thread_<slug>"],
+      "note": "<anything specific the brain should know>"
+    }
+  ],
+  "overdue_flags": [
+    {
+      "id": "thread_<slug> | payoff_<slug>",
+      "name": "<n>",
+      "type": "PlotThread | Payoff",
+      "expected_window": "<when it was supposed to resolve>",
+      "chapters_past_window": 0,
+      "narrative_consequence": "<what structural debt accumulates from this being unresolved>",
+      "recommended_action": "Resolve in next available chapter | Revise window estimate | Mark as intentional open-ending"
+    }
+  ],
+  "pending_payoffs_status": [
+    {
+      "payoff_id": "payoff_<slug>",
+      "description": "<setup element>",
+      "type": "Chekhov's gun | Foreshadowing | Consequence bomb | Prophecy | In-world legend",
+      "planted_chapter": 0,
+      "expected_window_or_trigger": "<chapter range or condition-based trigger>",
+      "resolution_status": "Pending | Overdue",
+      "priority_tier": "Essential | Enriching | Unclassified | N/A",
+      "note": "<any integration concern — e.g. Chekhov's gun needs re-activation>"
+    }
+  ],
+  "convergence_bomb_sweep": {
+    "performed": false,
+    "essential_bombs": [
+      {
+        "chain_id": "cc_<slug>",
+        "description": "<nature of the consequence>",
+        "detonation_trigger": "<story condition that fires this>",
+        "narrative_phase_anchor": "early | mid | convergence | final act",
+        "module_2_4_registered": true,
+        "detonation_path_assessment": "On track — path visible | AT RISK — no visible path",
+        "note": "<specific action if AT RISK>"
+      }
+    ],
+    "enriching_bombs": [
+      {
+        "chain_id": "cc_<slug>",
+        "description": "<n>",
+        "detonation_trigger": "<condition>",
+        "opportunity_status": "Opportunity available | No current opportunity — monitor"
+      }
+    ],
+    "unclassified_bombs": [
+      {
+        "chain_id": "cc_<slug>",
+        "description": "<n>",
+        "reclassification_recommendation": "Essential | Enriching | Retain as Unclassified",
+        "reasoning": "<why this recommendation>"
+      }
+    ],
+    "registration_gaps": [
+      {
+        "chain_id": "cc_<slug>",
+        "issue": "Essential bomb not registered in Payoff nodes (Module 2.4)"
+      }
+    ]
+  },
+  "convergence_opportunities": [
+    {
+      "threads_involved": ["thread_<slug>"],
+      "narrative_meaning": "<what happens when these threads intersect>",
+      "type": "Planned | Discovered",
+      "imminence": "Imminent (1–3 chapters) | Developing | Distant",
+      "note": "<action recommended>"
+    }
+  ],
+  "thread_health_assessment": {
+    "verdict": "Healthy | Overloaded | Underloaded | Dependency cascade risk",
+    "detail": "<specific concern if not Healthy>"
+  },
+  "no_thread_abandonment_check": {
+    "pass": true,
+    "abandoned_without_rationale": ["thread_<slug>"]
+  },
+  "priority_summary": {
+    "high": ["<items requiring immediate brain action>"],
+    "medium": ["<items requiring attention soon>"],
+    "low": ["<items to monitor>"]
+  },
+  "kg_context_used": {
+    "plot_thread_nodes_found": 0,
+    "payoff_nodes_found": 0,
+    "cascade_chain_nodes_found": 0
+  }
+}
+```
 
-This summary gives the main agent an immediate sense of whether the story is carrying too many threads, too few, or a healthy load.
+`convergence_bomb_sweep` is always present in artifacts but `performed: false` when `convergence_mode` is not set. `registration_gaps` lists Essential consequence bombs that are present in CascadeChain nodes but not registered as Payoff nodes — the brain routes a `story_state_manager` write to fix these gaps if found.
 
-### 2. Active Thread Status
-
-For each active thread, a one-line status report:
-- Thread ID and name
-- Characters involved
-- Current status within the thread (what has happened so far in this thread; where it currently sits)
-- Expected convergence window
-- Whether the thread is **on track**, **at risk** (approaching its window without sufficient development), or **overdue** (past its window without resolution)
-- Dependencies: what other threads must resolve before or alongside this one
-
-### 3. Overdue Flags
-
-A detailed entry for every thread or pending payoff that is past its expected window without resolution:
-- Thread or payoff name and ID
-- Expected window (chapter range)
-- Current chapter (how far past the window)
-- Why the overdue status matters: what narrative consequence does failing to resolve this thread have? (A thread that has been planted prominently and not paid off creates a structural debt that compounds. A setup element — especially a Chekhov's gun — that has been shown to the reader and not paid off damages trust in the narrative's internal logic.)
-- Recommended action: resolve in next available chapter / revise the window estimate if the story's pacing has shifted / flag as intentional open-ending and mark accordingly in the registry.
-
-### 4. Pending Payoffs Status
-
-For each entry in Module 2.4:
-- Setup element and type (Chekhov's gun / Foreshadowing / Consequence bomb / Prophecy / In-world legend)
-- Planted chapter
-- Expected payoff window or detonation trigger (for consequence bombs: the condition-based trigger is used, not a chapter number)
-- Current resolution status: Pending / Paid off / Overdue
-- If overdue: same treatment as Thread Overdue Flags above.
-
-### 4a. Convergence-Phase Bomb Sweep *(active when in or approaching convergence phase)*
-
-When the main agent is in convergence mode — or approaching it — this skill performs a dedicated sweep of all Armed consequence bombs. **This section is only included in the report when Module 4.2 is provided as input.**
-
-For each Armed bomb in Module 4.2:
-
-**Cross-reference against Module 2.4.**
-Is this bomb registered in Module 2.4 as a Pending Payoff with type "Consequence bomb"? If its priority tier is Essential and it is *not* in Module 2.4, this is a registration gap — flag it for the main agent to correct immediately.
-
-**Assess by priority tier:**
-- **Essential bombs:** Must find a scene before the story ends. For each one, assess whether the detonation trigger (the story condition that fires this bomb) is present in the current story trajectory. Is there an active thread, an approaching scene, or a convergence opportunity that could serve as the detonation moment? Flag as *"On track — detonation path visible"* or *"AT RISK — no visible detonation path before ending."* AT RISK flags are high-priority.
-- **Enriching bombs:** Should fire if opportunity permits. Flag any with a natural detonation opportunity in the current convergence window as *"Opportunity available."* Others: *"No current opportunity — monitor."*
-- **Unclassified bombs:** Convergence is the moment to reclassify. For each, assess whether the story's current arc has made it clear whether the bomb is Essential or Enriching. Recommend a reclassification. If still genuinely unclear, retain as Unclassified with a note on what would resolve the question.
-
-Essential Armed bombs with no visible detonation path are escalated to the Priority Summary as high-priority items, above overdue threads.
-
-### 5. Convergence Opportunities
-
-A list of threads and payoffs that are approaching each other — whose convergence would be structurally productive:
-- Which threads are involved
-- What the convergence would mean narratively (what happens when these threads intersect)
-- Whether the convergence is planned (in the thread registry's convergence window or the endpoint compass's milestones) or discovered (emerging from the current story state without prior planning)
-- Whether the convergence is imminent (within the next 2–3 chapters) or developing (building toward a later intersection)
-
-For discovered convergences: flag explicitly that this is a Gardener moment — an organic intersection the story has grown toward. The main agent decides whether to develop it.
-
-### 6. Thread Health Assessment
-
-An overall assessment of the story's thread load:
-
-- **Carrying too many threads:** If the active thread count is high relative to the number of chapters remaining until major milestones, some threads may need to be resolved, converged, or deliberately marked as open-endings before the story reaches its structural climax. A novel that is still opening new threads in its final third will not be able to close them satisfactorily.
-- **Carrying too few threads:** If the active thread count is low and the story is still in its early or middle section, it may be operating too linearly — following a single thread without the complexity and interconnection that makes a multi-POV narrative feel like a living world. This is a structural observation, not a prescription to add complexity for its own sake.
-- **Thread dependencies at risk:** If Thread B cannot resolve before Thread A, and Thread A is overdue, this is a cascade risk. Flag it.
-
-### 7. No-Thread-Abandonment Check
-
-A specific audit against the governing constraint: *no planted story thread is dropped without resolution or deliberate, tracked open-ending.*
-
-For each thread marked `Abandoned` in the registry:
-- Was the abandonment deliberate and tracked? (Is there a resolution note explaining the decision?)
-- Or is the thread simply absent — no longer being developed, no resolution noted, no intentional open-ending recorded? If so, flag it as a structural gap requiring attention.
+`no_thread_abandonment_check.abandoned_without_rationale` lists thread IDs where status is `Abandoned` but no `abandonment_rationale` property is set in the PlotThread node — these are structural gaps requiring attention.
 
 ---
 
 ## Boundary
 
-- **Does not** resolve threads — it reports on their status. The main agent (informed by Gardener Plotting System and Scene Construction) resolves threads through the act of writing.
+- **Does not** resolve threads — reports on their status.
 - **Does not** write scenes or scene parameters.
-- **Does not** audit braiding or POV structure at the sequence level. Braided Narrative Technique handles that.
-- **Does not** decide which threads to develop or how. It reports status and flags urgency; the main agent decides.
-- **Does not** update the World Bible. The thread status report is returned to the main agent; any changes to the Thread Registry (new threads, resolved threads, revised windows), Pending Payoffs, or Consequence Ledger are written by the main agent.
-- **Does not** reclassify consequence bomb priority tiers directly. In convergence mode, it recommends reclassification of Unclassified bombs; the main agent applies the reclassification to Module 4.2 and, if the bomb becomes Essential, adds it to Module 2.4.
+- **Does not** audit braiding or POV structure at the sequence level. That is `braided-narrative-technique`.
+- **Does not** decide which threads to develop or how — reports status and flags urgency; the brain decides.
+- **Does not** write to the Story State KG directly. The brain may route follow-up writes to `story_state_manager` based on the report (e.g. to reclassify consequence bomb priority tiers, fix registration gaps, or update abandoned thread rationales).
+- **Does not** reclassify consequence bomb priority tiers directly — recommends reclassification; the brain applies the update via `story_state_manager`.
 
 ---
 
 ## Invocation
 
-The main agent invokes Plot Thread Tracking:
+The `plotting_subagent` invokes this skill when the brain delegates a thread tracking check:
 
-- At every chapter boundary, as part of the standard chapter-completion sequence, to check whether any threads or payoffs require attention before the next chapter begins.
-- When the main agent invokes the Convergence Checkpoint (from the system prompt's Block 4) — checking whether the major conflicts are beginning to move toward resolution and whether POV arcs are converging toward the rough endpoint. **In convergence mode, the main agent must also provide Module 4.2 so this skill can perform the convergence-phase bomb sweep (Section 4a).**
-- When the story feels structurally complex and the main agent has lost confidence in its thread load — a health check.
-- When approaching a narrative milestone from the endpoint compass — to confirm that the threads and payoffs required to make the milestone land are sufficiently developed.
+- At chapter boundaries, as part of the standard chapter-completion sequence, to check whether any threads or payoffs require attention before the next chapter begins.
+- When the brain invokes the Convergence Checkpoint — checking whether major conflicts are moving toward resolution. In this case, the brain sets `convergence_mode: true` so the bomb sweep is performed.
+- When the story feels structurally complex and the brain has lost confidence in the thread load — a health check.
+- When approaching a narrative milestone, to confirm threads and payoffs required for the milestone are sufficiently developed.
 
-**Standard chapter-boundary sequence:**  
-`[Chapter complete] → Plot Thread Tracking → [Main agent updates Module 2.3 and 2.4 if needed] → Multiple POV Structure → Gardener Plotting System`
+**Standard chapter-boundary delegation sequence (brain-level):**
+`plotting_subagent (plot-thread-tracking)` → `[brain updates Story State via story_state_manager if needed]` → `plotting_subagent (multiple-pov-structure)` → `plotting_subagent (gardener-plotting-system)`
 
-**Convergence-mode invocation:**  
-`[Convergence Checkpoint triggered] → Plot Thread Tracking (with Module 4.2 provided) → [Main agent acts on bomb sweep flags before resuming forward writing]`
+**Convergence-mode invocation:**
+`plotting_subagent (plot-thread-tracking, convergence_mode=true)` → `[brain acts on bomb sweep flags before resuming forward writing]`
 
 ---
 
-## World Bible Interface
+## Story State Interface
 
-| Direction | Modules |
-|-----------|---------|
-| **Reads from** (as excerpts provided by main agent) | Module 2.3 (Plot Thread Registry), Module 2.4 (Pending Payoffs & Foreshadowing). Optionally: current chapter number, endpoint compass. **In convergence mode: Module 4.2 (Time-Delayed Consequence Bombs) — required for the convergence-phase bomb sweep.** |
-| **Main agent writes to** | Nothing — status report is returned to the main agent; any World Bible updates to Module 2.3, 2.4, or 4.2 are made by the main agent based on the report. |
+| Direction | Details |
+|---|---|
+| **Queries from Story State KG** | PlotThread nodes (all statuses); Payoff nodes (Pending and Overdue); DEPENDS_ON edges; INVOLVES edges; PAYS_OFF_IN edges. In convergence mode: CascadeChain nodes; Payoff nodes of type "Consequence bomb" |
+| **Returns in artifacts** | Thread status report — load summary, active thread status, overdue flags, pending payoffs status, convergence bomb sweep (convergence mode), convergence opportunities, thread health assessment, no-thread-abandonment check, priority summary. Brain routes follow-up writes to `story_state_manager` if registration gaps or reclassifications are needed |
 
 ---
 
 ## Dependencies
 
-**Upstream:** Module 2.3 and Module 2.4 must be current before invocation. Both modules are updated by the main agent after each chapter using the Chapter Delta from Module 2.2.  
-**Downstream:** Thread status report informs the main agent's decisions about upcoming chapter content, POV assignment (Multiple POV Structure), and scene parameters (Gardener Plotting System). Braided Narrative Technique uses Module 2.3 for convergence analysis; Plot Thread Tracking's report may be passed alongside Module 2.3 as supplementary context.
+**Upstream:** PlotThread nodes, Payoff nodes, and INVOLVES edges must be current in Story State KG. Brain provides `chapter_context` and `convergence_mode`.
+
+**Downstream:** `priority_summary.high` items guide the brain's immediate follow-up. Registration gaps trigger `story_state_manager` writes. Reclassification recommendations are applied by the brain via `story_state_manager` update to the relevant CascadeChain nodes. Convergence opportunities may trigger `braided-narrative-technique` for deeper analysis.
 
 ---
 
 ## Instructions
 
-### Step 1 — Establish the current chapter position
+### Step 1 — Query the Story State KG
 
-If the current chapter number was provided, use it as the baseline for all window assessments. If not, derive the approximate current position from the Chapter Log's most recent entry.
+Run all specified queries at `as_of_chapter = chapter_context`. If `convergence_mode` is `true`, also run the CascadeChain and Consequence bomb queries. Populate `kg_context_used`.
 
 ### Step 2 — Triage the thread registry
 
-Read the full Module 2.3. Categorise every thread:
-- Active threads: still developing, not yet resolved.
-- Dormant threads: introduced and left without resolution; not currently developing.
-- Resolved threads: completed, with resolution summary.
-- Abandoned threads: not resolved and no longer developing, with or without a tracked rationale.
-
-Apply the no-thread-abandonment check immediately: any thread that is not Active, Dormant, or Resolved must have an abandonment rationale. If it does not, flag it.
+Categorise every PlotThread node by status. Apply the no-thread-abandonment check immediately: any thread with status `Abandoned` and no `abandonment_rationale` property is a gap. Populate `no_thread_abandonment_check`.
 
 ### Step 3 — Assess active threads against their convergence windows
 
-For each active thread:
-- What is the expected convergence window?
-- Is the thread on track to reach that window given its current development?
-- Has the window passed? If so, it is overdue.
-- Is the window within the next 3–5 chapters? If so, flag as approaching.
+For each active PlotThread node:
+- What is the `expected_convergence_window`? (May be a chapter range string or a condition.)
+- Is the thread on track given its current development as inferred from INVOLVES edges and Chapter nodes?
+- Has the window passed? (`chapter_context` > estimated window end) → overdue.
+- Is the window within `window_lookahead` chapters? → approaching.
 
-A thread is "at risk" when it is within its window but has not reached the development stage required to make resolution plausible. This is different from overdue — at risk threads still have time, but not much, and the main agent should begin planning how to bring them to resolution.
+A thread is "at risk" when it is within its window but has not reached the development stage required to make resolution plausible. Flag these separately from overdue threads — they still have time, but not much.
 
 ### Step 4 — Assess pending payoffs
 
-For each entry in Module 2.4:
-- What is the setup element and when was it planted?
-- What is the expected payoff window?
-- Has the window passed? Is it approaching?
-- Is the setup element still in play — is the reader likely to remember it? (A Chekhov's gun planted in Chapter 2 but not paid off by Chapter 20 may need a brief re-activation before its payoff to ensure the reader still holds it.)
+For each Payoff node with `resolution_status` Pending or Overdue:
+- Has the `expected_window_or_trigger` been reached or passed?
+- Is the setup element still in play — will the reader remember it? A Chekhov's gun planted many chapters ago may need re-activation before its payoff, noted in the `note` field.
+- For Consequence bomb Payoffs: is the `detonation_trigger` condition approaching in the current narrative?
 
-The no-thread-abandonment constraint applies here too: a setup element that is never paid off is a structural failure. The audit must surface all pending items that have no clear path to resolution.
+### Step 5 — Convergence-phase bomb sweep (convergence mode only)
 
-### Step 5 — Identify convergence opportunities
+If `convergence_mode` is `true`:
 
-Survey the active thread registry and pending payoffs. Look for:
-- Thread pairs or groups whose characters, locations, or expected convergence windows overlap. Are there threads that would naturally resolve together — where the resolution of one creates the conditions for the resolution of another?
-- Setup elements (Module 2.4) that are connected to active threads and whose payoff would coincide with a thread's convergence.
-- Threads approaching milestones from the endpoint compass — threads that are moving toward the story's major structural moments.
+For each CascadeChain node, retrieve its consequence bomb character (Essential / Enriching / Unclassified from `properties.priority_tier`).
 
-For each convergence opportunity, state: which threads are involved, what the convergence would mean narratively, whether it is planned or discovered, and how imminent it is.
+**Check registration gaps:** Is this Essential CascadeChain registered as a Payoff node of type "Consequence bomb"? If not, add to `registration_gaps`.
 
-**Bomb sweep (convergence mode only — when Module 4.2 is provided):**
-After identifying convergence opportunities among threads and payoffs, perform the full Section 4a bomb sweep. For each Essential Armed bomb with no visible detonation path, check whether any identified convergence opportunity could serve as the detonation moment. If yes, flag the connection. If no, escalate to the Priority Summary as high-priority.
+**Assess by tier:**
+- **Essential:** Must detonate before the story ends. Is the `detonation_trigger` condition present in the current story trajectory? Flag as "On track — path visible" or "AT RISK — no visible detonation path before ending." AT RISK items go into `priority_summary.high`.
+- **Enriching:** Should fire if opportunity permits. Flag any with a natural detonation opportunity in the current convergence window as "Opportunity available."
+- **Unclassified:** Convergence is the moment to reclassify. Assess whether the story's current arc makes it clear whether the bomb is Essential or Enriching. Recommend reclassification.
 
-### Step 6 — Assess thread load health
+### Step 6 — Identify convergence opportunities
 
-Count active threads. Consider:
-- How many chapters have been written? How many remain (estimated, based on the endpoint compass)?
-- Is the active thread count consistent with the story's current structural position? (Early chapters can carry more open threads; later chapters must begin closing them.)
-- Are there dependency chains at risk — threads that must resolve in a specific order, where the first link in the chain is overdue?
-- In convergence mode: after the bomb sweep, are there Essential Armed bombs that have no detonation path? These are equivalent to overdue threads — they represent narrative commitments that the story has made and must honour before it ends. Include them in the thread load count when assessing whether the story can close cleanly.
+Scan active PlotThread pairs for structural overlap in their INVOLVES edges (same characters, approaching timelines, complementary convergence windows) and DEPENDS_ON edges. Flag:
+- Planned convergences (in thread convergence windows or endpoint compass milestones) — on track or at risk.
+- Discovered convergences (organic intersections not in the registry) — flag as Gardener moments.
 
-### Step 7 — Assemble and return the report
+### Step 7 — Assess thread health
 
-Compile the full report in the output structure defined above. Return it to the main agent. Do not update the World Bible directly.
+Count active threads against the story's structural position. Flag:
+- **Overloaded:** Active thread count is high relative to the chapters remaining until major milestones; some threads may need resolution or deliberate open-ending before the structural climax.
+- **Underloaded:** Too few active threads for the story's current phase.
+- **Dependency cascade risk:** Thread B cannot resolve before Thread A, and Thread A is overdue. The cascade risk compounds.
+
+### Step 8 — Assemble priority summary
+
+Rank all flags:
+- **High:** Registration gaps; Essential AT RISK bombs; threads that are significantly overdue with structural consequence.
+- **Medium:** Approaching window threads needing attention; reclassification recommendations.
+- **Low:** Monitor items, slow-developing tendencies.
+
+### Step 9 — Assemble and return artifacts
+
+Return the complete artifacts dict with `status: "success"`. Ensure `priority_summary` is populated even if all arrays are empty.
 
 ---
 
 ## Example
 
-For a worked example of input and output, see [examples.md](examples.md).
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ---
 
@@ -240,11 +309,14 @@ For a worked example of input and output, see [examples.md](examples.md).
 
 Before returning output, verify:
 
-- [ ] Thread Load Summary is present with all counts.
-- [ ] Every active thread has an on-track / at-risk / overdue assessment.
-- [ ] Every overdue thread or payoff has a detailed flag with recommended action.
-- [ ] Every pending payoff in Module 2.4 has a status assessment.
-- [ ] Convergence opportunities distinguish planned from discovered.
-- [ ] Thread health assessment is present.
-- [ ] No-thread-abandonment check is present and explicit.
-- [ ] No threads resolved. No scenes written. No World Bible writes specified.
+- [ ] `thread_load_summary` is present with all counts.
+- [ ] Every active PlotThread has an on-track / at-risk / overdue assessment.
+- [ ] Every overdue thread or payoff has a `narrative_consequence` — why this matters, not just that the window has passed.
+- [ ] Every pending Payoff has a `resolution_status` assessment.
+- [ ] `convergence_bomb_sweep.performed` matches `convergence_mode` setting.
+- [ ] In convergence mode: every Essential bomb has a `detonation_path_assessment`; every Unclassified bomb has a `reclassification_recommendation`.
+- [ ] `registration_gaps` is present (even if empty array) in convergence mode.
+- [ ] Convergence opportunities distinguish Planned from Discovered.
+- [ ] `thread_health_assessment` is present with a specific verdict.
+- [ ] `no_thread_abandonment_check` is present; `abandoned_without_rationale` is populated or empty array.
+- [ ] No threads resolved. No scenes written. No Story State KG writes from this skill.

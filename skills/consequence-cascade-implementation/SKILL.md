@@ -1,374 +1,357 @@
 ---
 name: consequence-cascade-implementation
-description: >
-  Projects, structures, and records the full consequence cascade of a major story event.
-  For every significant event — a death, a betrayal, a battle, a revelation, a broken oath —
-  this skill traces immediate, short-term, and long-term consequences across all affected
-  characters and relationships, and identifies any time-delayed consequence bombs to be
-  planted in the ledger. Each bomb is assigned a condition-based detonation trigger, a
-  narrative phase anchor, and a priority tier (Essential / Enriching / Unclassified) so the
-  main agent knows which bombs must fire before the story ends and which enrich it if they do.
-  Essential bombs are registered in both Module 4.2 and Module 2.4 so Plot Thread Tracking
-  can surface them during convergence. The main agent invokes this skill immediately after a
-  major event occurs in the draft, before writing the next scene.
+description: Projects, structures, and records the full consequence cascade of a major story event. For every significant event — a death, a betrayal, a battle, a revelation, a broken oath — traces immediate, short-term, and long-term consequences across all affected characters and relationships, and identifies time-delayed consequence bombs. Queries Story State KG directly for all affected character records, relationship records, and existing consequence chains. Returns structured consequence records in artifacts for persistence via story_state_manager. Invoked immediately after a major event is written, before the next scene is drafted.
 ---
 
-# Skill: Consequence Cascade Implementation
+# Consequence Cascade Implementation
 
 ## Identity
 
-**Skill name:** Consequence Cascade Implementation  
-**Group:** 5 – Consequence & Realism  
-**Subagent:** Consequence Subagent  
-**When to invoke:** Called by the main agent immediately after a major event is written — a death, a decisive battle, a betrayal, a secret revealed, a power shift, a broken vow, or any action that materially changes one or more characters' situations. Must be run before the next scene is drafted, so the consequence record is available to Gardener Plotting System and Scene Construction.
+**Skill name:** `consequence-cascade-implementation`
+**Group:** 5 — Consequence & Realism
+**Subagent:** consequence_subagent
+**When to invoke:** Called by the `consequence_subagent` when the brain delegates consequence analysis immediately after a major event is written — a death, a decisive battle, a betrayal, a secret revealed, a power shift, a broken vow, or any action that materially changes one or more characters' situations. Must be completed before the next scene is drafted, so the consequence records are available to `gardener-plotting-system` and `scene-construction`.
 
 ---
 
 ## Core
 
-For each major triggering event, project and record the full consequence cascade:
-
-1. **Immediate consequences** — what changes in the very next scene or within the same chapter.
-2. **Short-term consequences** — what unfolds across the next several chapters.
-3. **Long-term consequences** — what is set in motion but will not resolve until much later (consequence bombs).
-
-All consequences are traced across every affected character and every affected relationship pair. Each consequence bomb is assigned a **condition-based detonation trigger** (the story event or character situation that causes it to fire, not a chapter number), a **narrative phase anchor** (the structural phase in which detonation is expected — early, mid, convergence, or final act), and a **priority tier** (Essential, Enriching, or Unclassified) that tells the main agent whether the bomb must detonate before the story ends.
-
-Essential bombs are registered in both Module 4.2 (Consequence Ledger) and Module 2.4 (Pending Payoffs & Foreshadowing), making them visible to Plot Thread Tracking during convergence-phase sweeps. Enriching bombs are registered in Module 4.2 only.
-
-The output is a structured consequence record that the main agent uses to update World Bible Modules 4 and, for Essential bombs, Module 2.4.
+For each major triggering event, project and record the full consequence cascade: immediate consequences, short-term consequences, and long-term consequences (consequence bombs). All consequences are traced across every affected character and every affected relationship pair. Each consequence bomb is assigned a condition-based detonation trigger, a narrative phase anchor, and a priority tier (Essential, Enriching, or Unclassified). Essential bombs are returned for dual registration — both in Module 4.2 records and as Payoff nodes so `plot-thread-tracking` can surface them during convergence sweeps. Return structured consequence records in artifacts for persistence by `story_state_manager`.
 
 ---
 
 ## Input
 
-The main agent provides:
+### From brain context (`worker_request.context`)
 
-| Input | Description |
-|---|---|
-| **Triggering event description** | Plain-language description of what happened — the act itself, the outcome, and the chapter reference where it occurred. |
-| **Module 1.1 excerpt** | Character Directory entries for all characters directly or indirectly affected by the event — current psychological state, desires, fears, arc type, arc stage. |
-| **Module 1.3 excerpt** | Relationship Records for all affected character pairs (directional) — valence, power balance, history, active secrets. |
-| **Module 4.1 excerpt** | Existing Event → Consequence Chains — so this skill can identify if the new event is a downstream consequence of an existing chain (enabling cascade linkage) or a new chain root. |
+1. **`triggering_event`** — Plain-language description of what happened: the act, the outcome, and the chapter reference where it occurred. Required.
+2. **`chapter_context`** — The chapter number where the event occurred. Used to scope all KG queries and to set `valid_from` on new records. Required.
+3. **`affected_character_ids`** — List of `logical_id` strings for all characters directly or indirectly affected. Required. The brain determines this list before delegating — a character is affected if they witnessed the event, are named in the consequence, held a relationship with a character who was killed or transformed, or will plausibly act on new information the event creates.
 
-The main agent must determine which characters are "affected" before invoking this skill. A character is affected if: they witnessed the event, they are directly named in the consequence, they held a relationship with a character who was killed or transformed, or they are likely to act on new information the event creates.
+### Fetched from Story State KG
+
+The consequence_subagent queries the Story State KG directly for all records required to trace consequences:
+
+```
+# Full psychological records for all affected characters
+query_kg_nodes({type: "Character",
+                logical_id: {$in: affected_character_ids}},
+               as_of_chapter=chapter_context)
+
+# Directional relationship records for all affected character pairs
+query_kg_edges({type: "RELATIONSHIP",
+                from_node: {$in: affected_character_ids}},
+               as_of_chapter=chapter_context)
+
+# Existing consequence chains — to check whether this event
+# is a downstream link in an existing chain or a new chain root
+query_kg_nodes({type: "CascadeChain"},
+               as_of_chapter=chapter_context)
+
+# Existing consequence bombs — to check priority and registration
+query_kg_nodes({type: "Payoff",
+                "properties.type": "Consequence bomb",
+                "properties.resolution_status": "Pending"},
+               as_of_chapter=chapter_context)
+```
+
+If any character ID in `affected_character_ids` is not found in the KG, note the absence in `kg_context_used` and proceed with the characters that are available — do not halt.
 
 ---
 
 ## Output
 
-A structured consequence cascade record, ready for the main agent to write into World Bible Module 4. The record has three parts:
+All output is returned in `artifacts` as KG-ready records for `story_state_manager` to persist. The brain applies the quality gate before routing to `story_state_manager`.
 
-### Part 1: Event → Consequence Chain (Module 4.1 entry)
+### `artifacts` structure
 
+```json
+{
+  "triggering_event_summary": "<description + chapter reference>",
+  "cascade_chain": {
+    "action": "create_new | extend_existing",
+    "existing_chain_id": null,
+    "node": {
+      "logical_id": "cc_<event_slug>",
+      "node_type": "CascadeChain",
+      "chapter": 0,
+      "properties": {
+        "sequence": [
+          "<triggering event>",
+          "<immediate consequence>",
+          "<short-term consequence>",
+          "<long-term consequence>"
+        ],
+        "current_position": "<triggering event>",
+        "remaining_links": [
+          "<short-term consequence>",
+          "<long-term consequence>"
+        ]
+      }
+    },
+    "update_existing": null
+  },
+  "consequence_chain_entry": {
+    "node_type": "CascadeChain",
+    "event_consequences": {
+      "immediate": [
+        {
+          "affected_entity": "char_<slug> | relationship | world_state",
+          "description": "<specific, concrete change>",
+          "chapter_reference": 0
+        }
+      ],
+      "short_term": [
+        {
+          "affected_entity": "char_<slug> | relationship | world_state",
+          "description": "<what is now in motion>",
+          "projected_chapters": "<rough chapter range>"
+        }
+      ],
+      "long_term_pending": [
+        {
+          "affected_entity": "char_<slug> | relationship | world_state",
+          "description": "<what this eventually leads to>",
+          "bomb_id": "bomb_<slug>"
+        }
+      ]
+    }
+  },
+  "consequence_bombs": [
+    {
+      "logical_id": "bomb_<slug>",
+      "node_type": "Payoff",
+      "chapter": 0,
+      "properties": {
+        "type": "Consequence bomb",
+        "description": "<nature of the future consequence>",
+        "planted_in_chapter": 0,
+        "detonation_trigger": "<story condition or character situation that fires this — NOT a chapter number>",
+        "narrative_phase_anchor": "early | mid | convergence | final act",
+        "resolution_status": "Pending",
+        "priority_tier": "Essential | Enriching | Unclassified",
+        "dual_register": false
+      }
+    }
+  ],
+  "character_state_updates": [
+    {
+      "logical_id": "char_<slug>",
+      "updated_properties": {
+        "emotional_state": "<updated>",
+        "active_fears": ["<updated>"],
+        "injuries_physical_state": ["<if applicable>"]
+      },
+      "chapter": 0
+    }
+  ],
+  "relationship_updates": [
+    {
+      "logical_id": "rel_<a_slug>_<b_slug>",
+      "updated_properties": {
+        "emotional_valence": "<updated>",
+        "trajectory": "Stable | Deteriorating | Evolving | Volatile",
+        "most_recent_interaction": "<chapter reference + brief summary>"
+      },
+      "chapter": 0
+    }
+  ],
+  "knowledge_matrix_updates": [
+    {
+      "character_id": "char_<slug>",
+      "new_knows_edges": [
+        {
+          "logical_id": "knows_<char_slug>_<item_slug>",
+          "edge_type": "KNOWS",
+          "from_node": "char_<slug>",
+          "to_node": "ki_<slug>",
+          "chapter": 0,
+          "properties": {
+            "status": "KNOWS | BELIEVES | SUSPECTS | DOES NOT KNOW",
+            "acquired_at_chapter": 0,
+            "source": "<how they came to know this from the event>",
+            "dramatic_irony_flag": false
+          }
+        }
+      ],
+      "new_knowledge_items": [
+        {
+          "logical_id": "ki_<slug>",
+          "node_type": "KnowledgeItem",
+          "chapter": 0,
+          "properties": {
+            "description": "<the new fact, secret, or revelation created by this event>"
+          }
+        }
+      ]
+    }
+  ],
+  "kg_context_used": {
+    "character_nodes_found": 0,
+    "relationship_edges_found": 0,
+    "existing_cascade_chains_found": 0,
+    "chain_action": "create_new | extend_existing"
+  }
+}
 ```
-Triggering event: [description + chapter reference]
 
-Immediate consequences (already played out or plays out in current/next scene):
-  - [Character A]: [what changes for them immediately]
-  - [Character B]: [what changes for them immediately]
-  - [Relationship pair A↔B]: [how this relationship shifts immediately]
+**`cascade_chain.action`** is `"extend_existing"` when this event is a downstream link in an existing CascadeChain node (the event was listed as a `remaining_links` entry). In that case, `existing_chain_id` is populated and `update_existing` contains the updated `current_position` and `remaining_links` to patch the existing node. When `"create_new"`, the `node` field contains a new CascadeChain node record.
 
-Short-term consequences (projected for next N chapters):
-  - [Character A]: [what is now in motion for them]
-  - [Character B]: [what is now in motion for them]
-  - [Political/world state]: [if applicable]
+**`consequence_bombs`** are structured as Payoff node records ready for `story_state_manager` to insert. `dual_register: true` flags Essential bombs — `story_state_manager` inserts these as Payoff nodes in the KG, making them visible to `plot-thread-tracking`'s convergence sweep. Enriching and Unclassified bombs are also inserted as Payoff nodes (for completeness) but with `priority_tier` set accordingly.
 
-Long-term consequences (flagged as pending — to be written later):
-  - [Character A]: [what this eventually leads to]
-  - [World-level]: [if applicable]
+**`character_state_updates`** and **`relationship_updates`** are `update_kg_node` and `update_kg_edge` payloads — the consequence may immediately change a character's emotional state, a relationship's trajectory, or a relationship's most recent interaction record.
 
-Affected characters: [list]
-Cascade chain ID: [new chain ID, or reference to existing chain if this is a downstream link]
-```
-
-### Part 2: Time-Delayed Consequence Bombs (Module 4.2 entries; Essential bombs also to Module 2.4)
-
-For each long-term consequence that is not yet written, one record:
-
-```
-Planted event: [what was set in motion + chapter reference]
-Nature of future consequence: [what will eventually happen]
-Detonation trigger: [the story condition or character situation that causes this to fire —
-  e.g., "when Mira directly confronts Harren with the forged correspondence" or
-  "when Cavan is forced to choose a side publicly"]
-Narrative phase anchor: [early / mid / convergence / final act — loose structural estimate]
-Priority tier: [Essential / Enriching / Unclassified]
-  Essential = the story's thematic or emotional resolution requires this to detonate before the ending.
-  Enriching = adds resonance and depth if it fires; the story closes satisfactorily without it.
-  Unclassified = consequences are clear but story-level necessity is not yet determinable;
-    revisit at the convergence-phase sweep.
-Status: Armed
-Dual-register: [Yes — write to Module 2.4 as well / No — Module 4.2 only]
-  (Yes for Essential; No for Enriching and Unclassified)
-```
-
-**On writing Essential bombs to Module 2.4:** The main agent writes Essential Armed bombs as Pending Payoff entries in Module 2.4 with type "Consequence bomb" and the same detonation trigger and narrative phase anchor. This makes them visible to Plot Thread Tracking's convergence-phase sweep without any skill-to-skill dependency. The Module 4.2 record remains the authoritative consequence record; the Module 2.4 entry is the convergence-tracking hook.
-
-### Part 3: Cascade Chain Record (Module 4.3 entry — new or updated)
-
-If this event is a new chain root:
-```
-Chain ID: [new unique ID]
-Chain sequence: [Event] → [Immediate consequence] → [Short-term consequence] → [Long-term consequence]
-  Each link is described as a condition or story event, not a chapter number.
-  e.g.: "Harren's accusation" → "Mira's isolation" → "Mira finds the correspondence"
-    → "Harren is exposed and destroyed"
-Current position: [Event / Immediate consequence]
-Remaining links: [Short-term and long-term consequences not yet written, stated as conditions]
-Characters involved: [all affected characters]
-```
-
-If this event is a downstream link in an existing chain, the skill returns updated `Remaining links` and `Current position` fields for the main agent to patch into the existing Module 4.3 record.
+**`knowledge_matrix_updates`** tracks new information that characters gain (or do not gain) from the event — new KnowledgeItem nodes and KNOWS edges for each affected character, reflecting what they witnessed or learned.
 
 ---
 
-## Step-by-Step Instructions
+## Detonation Trigger Design
 
-### Step 1: Parse the Triggering Event
+Consequence bombs must use **condition-based detonation triggers**, not chapter numbers. The novel's length is unknown and its pacing may shift.
 
-Read the triggering event description. Identify:
-- What specifically changed in the world (a person died, power shifted, a secret was revealed, an alliance broke, etc.)
-- Who was present and who will learn of it.
-- What was irrevocably altered vs. what is temporarily disrupted.
+**Weak (chapter-anchored):** `"Estimated detonation: Ch. 22–25"`
+**Strong (condition-anchored):** `"Detonates when Cavan is publicly forced to choose a side — the moment when silence is no longer possible"`
 
-Name the event concisely (e.g., "Assassination of Lord Varen at the Red Feast, Ch. 14").
+The condition should be specific enough to be recognisable when it arrives but robust enough to survive pacing changes. A `narrative_phase_anchor` label (early / mid / convergence / final act) may be added as a supplementary orientation point — but it is never the primary trigger specification.
 
-### Step 2: Identify All Affected Characters
+---
 
-Using Module 1.1 and 1.3 excerpts, enumerate every character who:
-- Was present at the event.
-- Holds a recorded relationship with a character directly affected.
-- Will learn of the event through information channels already established.
-- Has an active desire, fear, or goal that this event directly advances, blocks, or transforms.
-
-Do **not** speculate about characters with no recorded connection to the event. Affect only those in the Module 1.1 and 1.3 excerpts provided.
-
-### Step 3: Trace Immediate Consequences (Character by Character)
-
-For each affected character, apply the **desire → action → consequence** model:
-- What did they want before this event?
-- What has this event taken from them, given them, or forced them to confront?
-- What is the first thing they will do or feel in the immediate aftermath?
-
-For each affected relationship pair (from Module 1.3):
-- Has the valence shifted (alliance → enmity, trust → suspicion)?
-- Has a secret been exposed or a power balance altered?
-- Record directional changes (Character A's view of Character B may change differently from B's view of A).
-
-### Step 4: Project Short-Term Consequences
-
-Extend the cascade across the next several chapters. Ask for each character:
-- What action does the immediate consequence compel?
-- What does that action collide with (other characters' plans, world state, active plot threads)?
-- What new conflicts or opportunities does this create?
-
-Short-term consequences should be concrete and plausible, not vague. "Aemond will seek revenge" is insufficient. "Aemond will move to consolidate control of the eastern garrison before the news reaches his brother's allies — creating a three-chapter window where Daemon must decide whether to strike first or negotiate" is a short-term consequence.
-
-### Step 5: Identify Consequence Bombs (Long-Term) and Assign Priority
-
-Long-term consequences are those that will not be dramatised for many chapters but are set in motion by this event. They are planted now so they cannot be forgotten.
-
-For each long-term consequence identified:
-
-**5a. Define the detonation trigger as a story condition, not a chapter number.**
-The novel's length is unknown. Chapter numbers make bombs fragile — the story may end before they arrive, or its pacing may shift so that the estimated chapter is wrong by ten chapters. Instead, state the trigger as a narrative condition: the event or character situation that *causes* the bomb to fire.
-
-- Weak (chapter-anchored): *"Estimated detonation window: Ch. 22–25."*
-- Strong (condition-anchored): *"Detonates when Cavan is publicly forced to choose a side — the moment when silence is no longer possible."*
-
-The condition should be specific enough to be recognisable when it arrives but robust enough to survive pacing changes. If a rough narrative phase is useful as a secondary anchor, add it (early / mid / convergence / final act) — but it is supplementary, not primary.
-
-**5b. Assign a priority tier.**
+## Priority Tier Assignment
 
 Ask: *If the story ended without this bomb detonating, would the ending feel incomplete, or merely less rich?*
 
-- **Essential:** The story's thematic or emotional resolution genuinely depends on this bomb firing. A reader who has been tracking this thread would feel the ending was unfinished if it did not resolve. These bombs must find a scene before the story closes.
-- **Enriching:** The bomb adds resonance, depth, or earned texture if it fires. The story's main arc closes satisfactorily without it. These bombs should fire if opportunity permits, but their absence is not a structural failure.
-- **Unclassified:** The consequences are clear, but whether they are load-bearing for the ending cannot be determined at this point in the story. Mark as Unclassified and flag for reassessment at the convergence-phase sweep.
+- **Essential:** The story's thematic or emotional resolution genuinely depends on this bomb firing. A reader tracking this thread would feel the ending was unfinished without it. These bombs must find a scene before the story closes.
+- **Enriching:** The bomb adds resonance and depth if it fires. The story's main arc closes satisfactorily without it. Fire if opportunity permits.
+- **Unclassified:** Consequences are clear but whether they are load-bearing for the ending cannot be determined at this point. Flag for reassessment at the convergence-phase sweep.
 
-When in doubt between Essential and Enriching, ask: *Is this bomb connected to the story's core conflict question (from the endpoint compass)?* If yes, lean Essential. If it deepens a subplot or enriches a secondary character arc, lean Enriching.
-
-**5c. Register Essential bombs in both Module 4.2 and Module 2.4.**
-Essential Armed bombs must be written to Module 2.4 (Pending Payoffs & Foreshadowing) as entries with type "Consequence bomb." This makes them visible to Plot Thread Tracking's convergence-phase sweep. The main agent performs this dual write. Enriching and Unclassified bombs are registered in Module 4.2 only.
-
-**5d. Flag each bomb in the cascade chain as a "Remaining link."**
-
-Examples of consequence bomb types by priority:
-
-| Type | Example | Likely tier |
-|---|---|---|
-| Withheld knowledge that surfaces under pressure | A character who witnessed a betrayal stays silent — but this will surface when they are cornered | Essential if the betrayal is the story's core conflict; Enriching if it is a subplot |
-| Political ripple from a distant death | A death's consequences take many chapters to reach a far house | Often Enriching unless that house is central to the ending |
-| Psychological wound manifesting under stress | A wound (physical, psychological) that does not manifest until a character is at their limit | Essential if this defines their arc resolution |
-| Debt created by a forced choice | A character's decision will be held against them by whoever loses the conflict | Priority depends on whether the debt-calling is part of the climax |
-
-### Step 6: Check for Cascade Chain Linkage
-
-Before creating a new chain, check the Module 4.1 excerpt:
-- Is this event already recorded as a "long-term consequence" or "short-term consequence" of a prior event?
-- If so, this event is a downstream link in an existing chain. Update that chain's `Current position` and `Remaining links` rather than opening a new chain root.
-- If this event is genuinely new (not downstream of anything recorded), open a new chain.
-
-### Step 7: Assemble and Return the Consequence Record
-
-Return the three-part output (Event → Consequence Chain, Time-Delayed Consequence Bombs, Cascade Chain record). The main agent writes these into World Bible Module 4.
+When in doubt between Essential and Enriching: Is this bomb connected to the story's core conflict question (from the endpoint compass)? If yes, lean Essential. If it deepens a subplot or enriches a secondary character arc, lean Enriching.
 
 ---
 
 ## Boundary
 
-This skill:
-- **Does not write prose.** It produces structured data, not scenes.
-- **Does not determine how consequences will be dramatised.** That is Gardener Plotting System's and Scene Construction's responsibility. This skill records what must happen; those skills determine how and in what scene.
-- **Does not update the World Bible directly.** It returns structured records; the main agent performs all World Bible writes — including the dual-register write for Essential bombs.
-- **Does not invoke other skills.** It does not call Gardener Plotting System, Scene Construction, Plot Thread Tracking, or Balancing Realism and Fantasy.
-- **Does not speculate beyond the provided excerpts.** It works only from the character and relationship data the main agent supplies. It does not invent affected characters not present in the excerpts.
-- **Does not resolve the consequences.** It maps what is now in motion. Resolution occurs in future chapters.
-- **Does not use chapter numbers as primary detonation anchors.** Detonation triggers are always story conditions. A narrative phase label (early / mid / convergence / final act) may be added as a loose secondary anchor but never replaces the condition.
-- **Does not make final determinations on priority tier when uncertain.** Unclassified is a valid tier. Priority is revisited by Plot Thread Tracking at convergence, not forced at planting time.
+- **Does not write prose.** Produces structured KG-ready records, not scenes.
+- **Does not determine how consequences will be dramatised.** That is `gardener-plotting-system` and `scene-construction`. This skill records what must happen; those skills determine how and in what scene.
+- **Does not write to the Story State KG.** Returns structured records in artifacts; `story_state_manager` performs all writes.
+- **Does not speculate beyond the provided character IDs.** Works only from the Character nodes and RELATIONSHIP edges retrieved for the `affected_character_ids` list. Does not invent affected characters not present in the KG records.
+- **Does not resolve the consequences.** Maps what is now in motion. Resolution occurs in future chapters.
+- **Does not use chapter numbers as primary detonation anchors.** Condition-based triggers only.
+- **Does not make final determinations on priority tier when uncertain.** Unclassified is a valid tier; priority is revisited by `plot-thread-tracking` at convergence.
 
 ---
 
-## World Bible Interface
+## Invocation
 
-| Direction | Modules |
+The `consequence_subagent` invokes this skill when the brain delegates consequence analysis — immediately after a major scene has been drafted and a major event has occurred in the story. The brain determines which characters are affected before delegating.
+
+The brain must ensure the Story State KG has been updated with the scene's output (Chapter node created, character states updated from the scene) before delegating this skill, so the character records reflect the post-event state.
+
+---
+
+## Story State Interface
+
+| Direction | Details |
 |---|---|
-| **Main agent reads and provides as excerpts** | Module 1.1 (Character Directory — all affected characters), Module 1.3 (Relationship Records — all affected pairs), Module 4.1 (existing Consequence Chains — to check for linkage) |
-| **Main agent writes from this skill's output** | Module 4.1 (new or updated Event → Consequence Chain), Module 4.2 (all new Time-Delayed Consequence Bomb entries), Module 4.3 (new or updated Cascade Chain record), **Module 2.4 (Essential bombs only — registered as Pending Payoff entries with type "Consequence bomb" so Plot Thread Tracking can sweep them at convergence)** |
+| **Queries from Story State KG** | Character nodes for all `affected_character_ids`; RELATIONSHIP edges between all affected pairs; existing CascadeChain nodes (to check for existing chain linkage); existing Payoff nodes of type "Consequence bomb" (to check registration status). All queried with `as_of_chapter` |
+| **Returns in artifacts** | CascadeChain node (new or update payload for existing); Payoff nodes for all consequence bombs (including dual-register Essential bombs); character state update payloads; relationship update payloads; knowledge matrix update payloads (new KnowledgeItem nodes and KNOWS edges). Brain routes all to `story_state_manager` for persistence |
 
 ---
 
 ## Dependencies
 
-**Upstream (what this skill consumes):**
-- Scene Construction — this skill is invoked immediately after a major scene is drafted and a major event has occurred.
-- Character Integration with Plot — the desire → action → consequence loops and relationship records it established are the foundation for consequence tracing here.
+**Upstream:** Major scene must be written and passed the quality gate. Character and relationship records for `affected_character_ids` must be current in Story State KG. Brain provides `triggering_event`, `chapter_context`, and `affected_character_ids`.
 
-**Downstream (what consumes this skill's output):**
-- The main agent updates Modules 4.1, 4.2, 4.3, and (for Essential bombs) Module 2.4 from this skill's output.
-- Gardener Plotting System reads Module 4.1 when determining the next scene's parameters — the consequence record directly shapes what goals, obstacles, and choices are available.
-- Scene Construction reads Module 4.1 (via Pending Payoffs) to embed foreshadowing.
-- Plot Thread Tracking reads Module 2.4 during convergence-phase sweeps and will surface all Essential Armed bombs that have not yet detonated, flagging them for the main agent to schedule before the ending.
-- Resolving Obstacles and Untangling Tangles reads active consequence chains when diagnosing a tangle.
+**Downstream:** Persisted CascadeChain and Payoff nodes are read by `plotting_subagent (plot-thread-tracking)` during convergence sweeps. Persisted Payoff nodes (consequence bombs) are read by `plotting_subagent (gardener-plotting-system)` when checking for approaching detonations. Updated character state records are read by all subsequent scene-level skills.
+
+---
+
+## Instructions
+
+### Step 1 — Query the Story State KG
+
+Run all specified queries at `as_of_chapter = chapter_context`. Populate `kg_context_used`. If any character ID in `affected_character_ids` is not found, note it and proceed with available records.
+
+### Step 2 — Parse the triggering event
+
+Read `triggering_event` from context. Identify:
+- What specifically changed in the world (person died, power shifted, secret revealed, alliance broke, etc.)
+- Who was present and who will learn of it
+- What was irrevocably altered vs. what is temporarily disrupted
+
+Name the event concisely for use in logical IDs (e.g. `harren_public_accusation_ch9`).
+
+### Step 3 — Check for existing cascade chain linkage
+
+Review the CascadeChain nodes retrieved from KG. Is this event already listed as a `remaining_links` entry in an existing chain? If yes, this event is a downstream link — update the existing chain rather than creating a new one. Set `cascade_chain.action = "extend_existing"`, populate `existing_chain_id`, and construct the `update_existing` payload updating `current_position` and removing this event from `remaining_links`.
+
+If this event is genuinely new and not a downstream link of anything recorded, set `cascade_chain.action = "create_new"` and construct the new CascadeChain node.
+
+### Step 4 — Trace immediate consequences
+
+For each affected character, apply the desire → action → consequence model:
+- What did they want before this event?
+- What has this event taken from them, given them, or forced them to confront?
+- What is the first thing they will do or feel in the immediate aftermath?
+
+For each affected RELATIONSHIP edge (directional):
+- Has the valence shifted?
+- Has a secret been exposed or a power balance altered?
+- What is the most recent interaction now?
+
+Immediate consequences are those that play out in the current or next scene.
+
+### Step 5 — Project short-term consequences
+
+Extend the cascade across the next several chapters. For each character, ask:
+- What action does the immediate consequence compel?
+- What does that action collide with (other characters' plans, world state, active plot threads)?
+- What new conflicts or opportunities does this create?
+
+Short-term consequences must be concrete and plausible, not vague. "Aemond will seek revenge" is insufficient. "Aemond will move to consolidate control of the eastern garrison before the news reaches his brother's allies — creating a three-chapter window where Daemon must decide whether to strike first or negotiate" is a short-term consequence.
+
+### Step 6 — Identify consequence bombs and assign priority
+
+For each long-term consequence that will not be dramatised for many chapters:
+
+**6a. Define the detonation trigger as a story condition, not a chapter number.** The condition must be specific enough to be recognisable when it arrives but robust enough to survive pacing changes.
+
+**6b. Assign priority tier** using the Essential / Enriching / Unclassified framework. When uncertain, apply the core conflict question test.
+
+**6c. Construct Payoff node records** for each bomb. Set `dual_register: true` for Essential bombs.
+
+### Step 7 — Build character state and relationship update payloads
+
+For each affected character whose `emotional_state`, `active_fears`, or `injuries_physical_state` has changed as an immediate consequence of the event, construct an `update_kg_node` payload.
+
+For each affected RELATIONSHIP edge whose `emotional_valence`, `trajectory`, or `most_recent_interaction` has changed, construct an `update_kg_edge` payload.
+
+### Step 8 — Build knowledge matrix updates
+
+For each affected character, assess what they now know, suspect, or believe as a result of the event that they did not before. Construct new KnowledgeItem nodes and KNOWS edges for each new piece of information, with the appropriate status and `dramatic_irony_flag` where the reader knows more than the character.
+
+### Step 9 — Assemble and return artifacts
+
+Assemble the complete artifacts dict. Set `status: "success"`. Ensure consequence bombs with `dual_register: true` are clearly identifiable for `story_state_manager` to insert as both CascadeChain entries and Payoff nodes.
 
 ---
 
 ## Example
 
-### Input shape
-
-```
-Triggering event: Lord Harren's public accusation of Lady Mira before the assembled court — 
-  claiming she passed troop movements to the river lords. Chapter 9.
-
-Module 1.1 excerpts provided:
-  - Lady Mira: desires restoration of her house's honor; fears public exposure of her 
-    brother's debts; arc = fall and reinvention; currently in stage 2 of 4.
-  - Lord Harren: desires full political dominance of the eastern council; fears his own 
-    vulnerability if Mira can prove his accusation is fabricated; arc = antagonist.
-  - Lord Cavan (Mira's ally): desires a quiet political life; fears being drawn into 
-    open conflict; arc = bystander becoming participant.
-
-Module 1.3 excerpts provided:
-  - Harren → Mira: valence hostile; power advantage Harren; secret = Harren knows 
-    about Mira's brother's debts; trajectory = escalating.
-  - Mira → Cavan: valence allied; power roughly equal; secret = Cavan knows Mira 
-    passed no information; trajectory = stable but fragile.
-  - Cavan → Harren: valence neutral-fearful; power disadvantage Cavan.
-
-Module 4.1: No existing chain involving Mira or Harren found.
-```
-
-### Output shape
-
-**Part 1: Event → Consequence Chain**
-```
-Triggering event: Harren's public accusation of Mira, Ch. 9.
-
-Immediate consequences:
-  - Lady Mira: social standing suspended; allies will not speak for her publicly until 
-    the accusation is answered; access to court resources restricted.
-  - Lord Cavan: forced to choose silence (safety) or testimony (risk); either choice 
-    is now costly where before it cost him nothing.
-  - Harren → Mira: relationship moves from hostile-covert to hostile-public; Harren 
-    has committed to destruction rather than leverage.
-  - Mira → Cavan: Mira will need Cavan's testimony; Cavan now holds power over her 
-    that he did not hold before.
-
-Short-term consequences:
-  - Mira must either find proof of fabrication or mount a counter-accusation — 
-    compelling her to seek her brother's hidden correspondence (3–4 chapter arc).
-  - Cavan must decide within one chapter whether to testify; delay will be read as 
-    guilt-by-association by Harren's faction.
-  - Harren's public commitment makes private negotiation with Mira impossible; 
-    he must destroy her or be exposed as a fabricator — no middle path.
-
-Long-term consequences (flagged as pending):
-  - If Mira survives this: Harren becomes permanently vulnerable to her. 
-    The power balance inverts.
-  - Cavan's choice here defines his arc for the remainder of the novel.
-
-Affected characters: Lady Mira, Lord Harren, Lord Cavan.
-Cascade chain ID: CC-009 (new chain).
-```
-
-**Part 2: Consequence Bombs**
-```
-Bomb 4.2-A:
-  Planted event: Harren's public overcommitment, Ch. 9.
-  Nature: If Mira finds the forged correspondence, Harren is destroyed —
-    not merely checked. The evidence will exist for multiple chapters before surfacing.
-  Detonation trigger: When Mira directly confronts Harren with the forged correspondence
-    in a public or semi-public setting where he cannot suppress it.
-  Narrative phase anchor: Convergence phase.
-  Priority tier: Essential — the story's central conflict (Harren's destruction or Mira's)
-    cannot resolve without this bomb firing. If it does not detonate before the ending,
-    the Mira/Harren arc has no resolution.
-  Status: Armed.
-  Dual-register: Yes — write to Module 2.4 as Pending Payoff (type: Consequence bomb).
-
-Bomb 4.2-B:
-  Planted event: Cavan's moment of forced choice, Ch. 9–10.
-  Nature: Cavan's decision (silence or testimony) will be held against him
-    by whoever loses this conflict — creating a debt that will be called in
-    when Cavan least wants to pay it.
-  Detonation trigger: When the losing party (Harren or Mira) has cause to act against
-    Cavan and sufficient leverage to do so — i.e., after the Mira/Harren conflict resolves.
-  Narrative phase anchor: Final act.
-  Priority tier: Enriching — Cavan's debt adds earned weight to his arc's conclusion,
-    but the main Mira/Harren story closes satisfactorily without it detonating.
-    If the story's final act is structurally crowded, this bomb can be acknowledged
-    in passing rather than dramatised as a full scene.
-  Status: Armed.
-  Dual-register: No — Module 4.2 only.
-```
-
-**Part 3: Cascade Chain**
-```
-Chain ID: CC-009
-Sequence:
-  Harren's public accusation (Ch. 9)
-    → Mira's isolation and suspension of standing (immediate)
-    → Cavan's forced choice: silence or testimony (next chapter)
-    → Mira seeks her brother's hidden correspondence (multi-chapter search arc)
-    → Mira confronts Harren with the forged correspondence [Bomb 4.2-A detonation trigger]
-    → Harren is exposed and destroyed / power balance inverts
-    → Cavan's debt is called in [Bomb 4.2-B detonation trigger]
-Current position: Harren's public accusation (Ch. 9) — immediate consequences in play.
-Remaining links: All links from "Cavan's forced choice" onward.
-Characters involved: Lady Mira, Lord Harren, Lord Cavan.
-```
+For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ---
 
-## Glossary (Relevant Terms)
+## Quality Checks
 
-- **Desire → action → consequence:** The causal engine of all plot: character desire drives action; action produces consequences; consequences are tracked and honoured in future chapters. This skill maps the consequence leg of that loop.
-- **Consequence ledger / cascade:** The recorded immediate, short-term, and long-term consequences of story events, including time-delayed "consequence bombs."
-- **Consequence bomb:** A consequence set in motion now but detonating later — recorded at planting so it cannot be silently discarded. Detonation is defined by a story condition, not a chapter number.
-- **Detonation trigger:** The story condition or character situation that causes a consequence bomb to fire — e.g., "when Mira confronts Harren with the forged correspondence." Condition-based triggers are robust to pacing changes; chapter-number anchors are not.
-- **Narrative phase anchor:** A loose structural label (early / mid / convergence / final act) used as a secondary orientation point for a bomb's expected detonation. Supplementary to the detonation trigger, never a substitute for it.
-- **Priority tier:** The classification of a consequence bomb's narrative necessity. Essential = must detonate before the story ends; Enriching = adds depth if it fires, not structurally required; Unclassified = revisit at convergence.
-- **Dual-register:** The practice of writing Essential Armed bombs to both Module 4.2 (the authoritative consequence record) and Module 2.4 (Pending Payoffs), making them visible to Plot Thread Tracking's convergence-phase sweep.
-- **Cascade chain:** A multi-step causal sequence: A causes B causes C causes D. This skill both opens new chains and extends existing ones.
+Before returning output, verify:
+
+- [ ] `cascade_chain.action` is explicitly `"create_new"` or `"extend_existing"`.
+- [ ] If `"extend_existing"`: `existing_chain_id` is populated and `update_existing` contains correct patch payload.
+- [ ] All consequence bombs use condition-based detonation triggers — no chapter number estimates as primary triggers.
+- [ ] Priority tier assignment is explicit for every bomb; Unclassified is used when genuinely uncertain, not as a default.
+- [ ] `dual_register: true` is set only for Essential bombs.
+- [ ] `character_state_updates` covers all characters whose immediate state has changed.
+- [ ] `knowledge_matrix_updates` covers information asymmetries created by the event (who witnessed it, who will not learn of it).
+- [ ] Short-term consequences are specific and concrete — not vague intentions.
+- [ ] No prose written. No scenes determined.
+- [ ] No Story State KG writes from this skill — all output in artifacts for story_state_manager.
