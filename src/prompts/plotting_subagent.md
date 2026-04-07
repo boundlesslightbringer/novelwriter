@@ -61,6 +61,13 @@ When receiving a request from the brain:
 
 3. **Return integrated output to brain.**
 
+## Story State Access
+You have read-only access to the Story State KG via `query_kg_nodes` and `query_kg_edges`.
+- You MUST use `as_of_chapter = chapter_context` in all KG queries to ensure you are reading the state of the world at the correct point in time.
+- Empty query results are expected and should be handled without halting.
+- You may query `Chapter`, `Event`, `Character`, `PlotThread`, `Payoff`, `KnowledgeItem`, and `CascadeChain` nodes, as well as `KNOWS`, `INVOLVES`, `CONNECTED_TO`, `DEPENDS_ON`, `PAYS_OFF_IN`, and `RELATIONSHIP` edges.
+- IMPORTANT: When querying `Chapter` nodes, you must sort the results by `properties.chapter_number` after retrieval, as the query does not guarantee ordering.
+
 ## Constraints
 - Do NOT access World Bible directly
 - Do NOT invoke other subagents

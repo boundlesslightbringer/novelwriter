@@ -101,26 +101,34 @@ derive from `response_patterns.betrayal` — a character who responds to betraya
 by going quiet and withdrawing access rather than confronting may be carrying
 ongoing suspicions already.
 
-**DOES NOT KNOW:** For every `KNOWS` edge you create for Character A about
+**DOES NOT KNOW:** For every `KNOWS`, `BELIEVES`, or `SUSPECTS` edge you create for Character A about
 Character B, you must create a corresponding `DOES NOT KNOW` edge for Character B
 about the same `KnowledgeItem`. This is the cross-referencing rule. Do not create
-a `KNOWS` edge without its mirror `DOES NOT KNOW` edge.
+a `KNOWS`, `BELIEVES`, or `SUSPECTS` edge without its mirror `DOES NOT KNOW` edge.
 
 ---
 
 ## The cross-referencing rule
 
 This is the most common point of failure in the original skill. State it plainly:
+The cross-referencing rule applies to ALL knowledge states (`KNOWS`, `BELIEVES`, and `SUSPECTS`).
 
-If you create:
+If you create a `KNOWS` edge:
   `char_caradhen → ki_vara_is_evaluating_him [KNOWS]`
 
 You must also create:
   `char_vara → ki_vara_is_evaluating_him [DOES NOT KNOW]`
   (She does not know that Caradhen has identified what she is doing.)
 
-Check every `KNOWS` edge you produce. Find the corresponding character. Create
-their `DOES NOT KNOW` entry. Set `dramatic_irony_flag: true` on the `KNOWS` edge
+If you create a `BELIEVES` or `SUSPECTS` edge:
+  `char_alice → ki_bob_is_selfish_mercenary [BELIEVES]`
+
+You must also create:
+  `char_bob → ki_bob_is_selfish_mercenary [DOES NOT KNOW]`
+  (Bob does not know that Alice falsely believes this about him.)
+
+Check every edge you produce. Find the corresponding character. Create
+their `DOES NOT KNOW` entry. Set `dramatic_irony_flag: true` on the edge
 when the reader will know what the character does not.
 
 ---
@@ -143,7 +151,7 @@ For a worked example of input and output, see [EXAMPLES.md](EXAMPLES.md).
 
 ## Quality checks
 
-- [ ] Every `KNOWS` edge has a corresponding `DOES NOT KNOW` edge for the other character.
+- [ ] Every `KNOWS`, `BELIEVES`, and `SUSPECTS` edge has a corresponding `DOES NOT KNOW` edge for the other character. The cross-referencing rule applies to ALL knowledge states.
 - [ ] `BELIEVES` entries include false beliefs derived from `self_deception` — not just
       obvious misunderstandings.
 - [ ] `SUSPECTS` entries are derived from character psychology or the desire network —

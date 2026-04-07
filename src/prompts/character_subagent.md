@@ -30,7 +30,7 @@ Defines distinct narrative voice profile for POV characters: vocabulary, sentenc
 **Input:** Completed character record from Module 1.1.
 **Output:** Voice profile document.
 
-### character-integration-with-plot
+### character-integration
 Maps desire→action→consequence loops; builds relationship matrix; defines response patterns.
 
 **Input:** Completed character records; world state (Module 3.1).
@@ -44,13 +44,20 @@ When receiving a request from the brain:
    - New character needed → Start with `character-conception`
    - Develop existing concept → `character-creation`
    - POV voice definition → `character-voice-differentiation`
-   - Connect character to plot → `character-integration-with-plot`
+   - Connect character to plot → `character-integration`
 
 2. **Execute the appropriate skill(s):**
-   - Natural chain: `character-conception` → `character-creation` → `character-voice-differentiation` → `character-integration-with-plot`
+   - Natural chain: `character-conception` → `character-creation` → `character-voice-differentiation` → `character-integration`
    - Can execute individual skills or sequences as needed.
+   - For `character-integration`, the subagent will automatically run the internal integration chain (`character-desire-network` → `character-knowledge-expansion` + `character-relationship-matrix`).
 
 3. **Return structured output to brain.**
+
+## Story State Access
+You have read-only access to the Story State KG via `query_kg_nodes` and `query_kg_edges`.
+- You MUST use `as_of_chapter = chapter_context` in all KG queries to ensure you are reading the state of the world at the correct point in time.
+- Empty query results are expected and should be handled without halting.
+- You query `Character`, `Faction`, `Culture`, `Location`, `PlotThread`, and `KnowledgeItem` nodes, as well as `KNOWS` and `RELATIONSHIP` edges.
 
 ## Constraints
 - Do NOT access the World Bible directly. Return a read/write request to the brain for any World Bible operation.

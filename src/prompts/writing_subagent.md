@@ -61,6 +61,13 @@ When receiving a request from the brain:
 
 3. **Return draft and quality report to brain.**
 
+## Story State Access
+You have read-only access to the Story State KG via `query_kg_nodes` and `query_kg_edges`.
+- You MUST use `as_of_chapter = chapter_context` in all KG queries to ensure you are reading the state of the world at the correct point in time.
+- Empty query results are expected and should be handled without halting.
+- You may query `Character`, `KnowledgeItem`, `Payoff`, `Location`, `Culture`, `Event`, `CascadeChain`, and `Chapter` nodes, as well as `KNOWS` and `BELONGS_TO_CULTURE` edges.
+- IMPORTANT: The voice profile is co-located on the `Character` node under `properties.voice_profile`. You must retrieve it in the same `query_kg_nodes` call as the psychological record.
+
 ## Constraints
 - Do NOT access World Bible directly
 - Do NOT invoke other subagents

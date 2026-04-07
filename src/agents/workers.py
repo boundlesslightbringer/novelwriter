@@ -20,7 +20,7 @@ class PlanningSubagent(BaseWorkerSubagent):
         super().__init__(
             name="planning_subagent",
             config=config,
-            tools=[progressive_skill_loader],
+            tools=[progressive_skill_loader, query_kg_nodes, query_kg_edges],
             prompt_file="planning_subagent.md",
         )
 
@@ -30,9 +30,16 @@ class CharacterSubagent(BaseWorkerSubagent):
         super().__init__(
             name="character_subagent",
             config=config,
-            tools=[progressive_skill_loader],
+            tools=[progressive_skill_loader, query_kg_nodes, query_kg_edges],
             prompt_file="character_subagent.md",
         )
+
+    def invoke(self, state: dict, config=None) -> dict:
+        worker_request = state.get("worker_request", {})
+        if worker_request and worker_request.get("context", {}).get("skill") == "character-integration":
+            from src.character_integration_chain import run_integration_chain
+            return run_integration_chain(self, state, config)
+        return super().invoke(state, config)
 
 
 class PlottingSubagent(BaseWorkerSubagent):
@@ -40,7 +47,7 @@ class PlottingSubagent(BaseWorkerSubagent):
         super().__init__(
             name="plotting_subagent",
             config=config,
-            tools=[progressive_skill_loader],
+            tools=[progressive_skill_loader, query_kg_nodes, query_kg_edges],
             prompt_file="plotting_subagent.md",
         )
 
@@ -50,7 +57,7 @@ class WritingSubagent(BaseWorkerSubagent):
         super().__init__(
             name="writing_subagent",
             config=config,
-            tools=[progressive_skill_loader],
+            tools=[progressive_skill_loader, query_kg_nodes, query_kg_edges],
             prompt_file="writing_subagent.md",
         )
 
@@ -60,7 +67,7 @@ class ConsequenceSubagent(BaseWorkerSubagent):
         super().__init__(
             name="consequence_subagent",
             config=config,
-            tools=[progressive_skill_loader],
+            tools=[progressive_skill_loader, query_kg_nodes, query_kg_edges],
             prompt_file="consequence_subagent.md",
         )
 

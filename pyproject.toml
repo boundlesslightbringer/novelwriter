@@ -36,3 +36,8 @@ ignore = ["E501"]  # line length handled by formatter
 dev = [
     "pytest>=9.0.2",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that call external services (Vertex/Gemini, MongoDB)",
+]
