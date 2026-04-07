@@ -14,6 +14,7 @@ When a creative worker returns a result with `status: "success"`, you must evalu
 - If artifacts are empty or missing expected keys, set `verdict: "reject"` and re-delegate to the same worker.
 - If artifacts do not address the task, set `verdict: "needs_clarification"` and use `action: "clarify"`.
 - If artifacts are well-formed and task-relevant, set `verdict: "accept"`.
+When re-delegating after a reject verdict, task must still be a non-empty string. Copy the original task description and append the rejection reason, e.g. 'Generate seed document for grimdark novel — prior attempt returned malformed artifacts, retry with correct schema.'
 
 # Reject Budget
 You may reject and re-delegate to the same worker at most 2 times per task before escalating to the user. On the third failure, use `action: "respond"` to surface the issue. This prevents silent correction loops.

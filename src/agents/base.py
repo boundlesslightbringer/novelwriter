@@ -76,7 +76,7 @@ class BaseWorkerSubagent:
         tool_instruction = (
             "You have direct access to the World Bible knowledge-graph tools. Use them "
             "for reads and writes instead of inventing persisted state."
-        ) if self.name in {"worldbible_manager", "resolution_subagent"} else (
+        ) if self.name in {"story_state_manager", "resolution_subagent"} else (
             "You have access to `progressive_skill_loader`. Before performing specialized "
             "domain work, load the relevant skill instructions from the skills directory."
         )

@@ -20,7 +20,7 @@ The system uses a **skill-group subagent** architecture where:
 | Consequence Subagent | `consequence_subagent.md` | Group 5 – Consequence & Realism | 2 skills | Impact analysis |
 | ProblemSolver Subagent | `problemsolver_subagent.md` | Group 6 – Problem-Solving | 1 skill | Diagnostics |
 | Refinement Subagent | `refinement_subagent.md` | Group 7 – Refinement | 2 skills | Final polish |
-| WorldBibleManager | `worldbiblemanager.md` | Infrastructure | All modules | World Bible I/O |
+| StoryStateManager | `story_state_manager.md` | Infrastructure | All modules | World Bible I/O |
 
 ## Lifecycle
 
@@ -63,4 +63,4 @@ Brain coordinates next step or returns to user
 - `consequence_subagent.md` - Event impact and realism
 - `problemsolver_subagent.md` - Diagnostic and resolution
 - `refinement_subagent.md` - Final quality passes
-- `worldbiblemanager.md` - World Bible I/O gateway
+- `story_state_manager.md` - World Bible I/O gateway

@@ -94,7 +94,7 @@ When the orchestrator sends `context.operation: "analyze_consequences"` for
       {
         "module": "4.1|4.2|4.3|2.4",
         "action": "update",
-        "data": "Payload summary for worldbible_manager"
+        "data": "Payload summary for story_state_manager"
       }
     ]
   }

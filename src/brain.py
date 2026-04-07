@@ -121,6 +121,9 @@ class BrainNode:
 
         # 4. Quality Gate Decision Tree
         latest_result = state.get("latest_worker_result")
+        rejection_count = state.get("rejection_count", 0)
+        verdict = None
+        
         if latest_result:
             worker = latest_result.get("worker")
             result_data = latest_result.get("result", {})
@@ -150,17 +153,9 @@ class BrainNode:
                 if verdict == "reject":
                     # Reject Budget Check
                     task = latest_result.get("task")
-                    history = state.get("worker_history", [])
-                    rejections = 0
-                    for entry in reversed(history):
-                        if entry.get("worker") == worker and entry.get("task") == task:
-                            # We count consecutive attempts as rejections if they didn't lead to accept
-                            # But a simpler way is just to count how many times this worker/task is in history
-                            rejections += 1
-                            
-                    if rejections >= self.config.max_rejection_budget:
+                    if rejection_count >= self.config.max_rejection_budget:
                         decision.action = "respond"
-                        decision.response = f"Worker {worker} failed to complete task after {rejections} attempts."
+                        decision.response = f"Worker {worker} failed to complete task after {rejection_count + 1} attempts."
                     else:
                         decision.action = "delegate"
                         decision.worker = worker
@@ -184,6 +179,7 @@ class BrainNode:
             updates["final_response"] = decision.response or "No response provided."
             updates["active_worker"] = None
             updates["worker_request"] = None
+            updates["rejection_count"] = 0
         elif decision.action == "delegate":
             updates["final_response"] = None
             updates["active_worker"] = decision.worker
@@ -192,5 +188,10 @@ class BrainNode:
                 "context": decision.context or {},
                 "reasoning": decision.reasoning
             }
+            # If we are re-delegating due to a rejection, increment the counter
+            if latest_result and latest_result.get("worker") == decision.worker and latest_result.get("task") == decision.task and verdict == "reject":
+                updates["rejection_count"] = rejection_count + 1
+            else:
+                updates["rejection_count"] = 0
             
         return updates

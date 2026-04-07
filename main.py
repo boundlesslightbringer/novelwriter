@@ -39,6 +39,7 @@ def main() -> None:
             turn_input = {
                 "messages": [HumanMessage(content=user_input)],
                 "iteration_count": 0,
+                "rejection_count": 0,
                 "final_response": None,
                 "active_worker": None,
                 "worker_request": None,

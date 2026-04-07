@@ -338,8 +338,8 @@ def detect_kg_contradiction(proposed_updates: list[dict[str, Any]], chapter: int
     edges = _get_edges()
 
     for update in proposed_updates:
-        action = update.get("action")
-        logical_id = update.get("logical_id")
+        action = update.action
+        logical_id = update.logical_id
 
         if action == "update_node":
             if not nodes.find_one({"logical_id": logical_id, "valid_to": None}):

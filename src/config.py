@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMConfig(BaseModel):
     """Configuration for an LLM model."""
-    model_name: str = Field(default="gemini-3.1-pro-preview")
+    model_name: str = Field(default="gemini-3-flash-preview")
     model_provider: str = Field(default="google_genai")
     temperature: float = Field(default=1)
     top_p: Optional[float] = Field(default=0.95)
@@ -21,7 +21,9 @@ class NovelWriterConfig(BaseSettings):
     default_llm: LLMConfig = Field(default_factory=LLMConfig)
     
     # Per-agent overrides (e.g., {"writing_subagent": LLMConfig(temperature=0.9)})
-    agent_llm_overrides: Dict[str, LLMConfig] = Field(default_factory=dict)
+    agent_llm_overrides: Dict[str, LLMConfig] = {
+    "brain": LLMConfig(model_name="gemini-3.1-pro-preview", temperature=0)
+}
     
     # Orchestrator settings
     max_brain_iterations: int = Field(default=15)

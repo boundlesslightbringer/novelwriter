@@ -65,7 +65,7 @@ class ConsequenceSubagent(BaseWorkerSubagent):
         )
 
 
-class WorldBibleManager(BaseWorkerSubagent):
+class StoryStateManager(BaseWorkerSubagent):
     def __init__(self, config: NovelWriterConfig):
         tools = [
             init_kg_db,
@@ -78,10 +78,10 @@ class WorldBibleManager(BaseWorkerSubagent):
             detect_kg_contradiction,
         ]
         super().__init__(
-            name="worldbible_manager",
+            name="story_state_manager",
             config=config,
             tools=tools,
-            prompt_file="worldbiblemanager.md",
+            prompt_file="story_state_manager.md",
         )
 
 

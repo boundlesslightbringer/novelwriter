@@ -93,6 +93,7 @@ class OrchestratorState(TypedDict):
 
     messages: Annotated[list[BaseMessage], add_messages]
     iteration_count: int
+    rejection_count: int
     final_response: str | None
     active_worker: str | None
     worker_request: dict | None          # {task, context, reasoning}
