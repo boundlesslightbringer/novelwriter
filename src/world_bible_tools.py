@@ -116,13 +116,14 @@ def init_kg_db(db_name: str) -> str:
 
 
 @tool(args_schema=QueryNodesArgs)
-def query_kg_nodes(query: dict[str, Any], as_of_chapter: int | None = None) -> list[dict[str, Any]]:
+def query_kg_nodes(query: dict[str, Any], as_of_chapter: int | None = None, sort: dict[str, int] | None = None) -> list[dict[str, Any]]:
     """Query nodes in the Knowledge Graph.
 
     Args:
         query: MongoDB query dictionary (e.g., {"type": "Character", "properties.faction": "Stark"}).
         as_of_chapter: If provided, retrieves the state of nodes as they existed at this chapter.
             If None, retrieves the currently active nodes (valid_to is null).
+        sort: Optional sort dictionary (e.g., {"properties.chapter_number": 1}).
 
     Returns:
         A list of matching node documents.
@@ -136,17 +137,21 @@ def query_kg_nodes(query: dict[str, Any], as_of_chapter: int | None = None) -> l
     else:
         temporal_query["valid_to"] = None
 
-    return list(nodes.find(temporal_query, {"_id": 0}))
+    cursor = nodes.find(temporal_query, {"_id": 0})
+    if sort:
+        cursor = cursor.sort(list(sort.items()))
+    return list(cursor)
 
 
 @tool(args_schema=QueryEdgesArgs)
-def query_kg_edges(query: dict[str, Any], as_of_chapter: int | None = None) -> list[dict[str, Any]]:
+def query_kg_edges(query: dict[str, Any], as_of_chapter: int | None = None, sort: dict[str, int] | None = None) -> list[dict[str, Any]]:
     """Query edges in the Knowledge Graph.
 
     Args:
         query: MongoDB query dictionary (e.g., {"type": "KNOWS", "from": "char_arya"}).
         as_of_chapter: If provided, retrieves the state of edges as they existed at this chapter.
             If None, retrieves the currently active edges (valid_to is null).
+        sort: Optional sort dictionary (e.g., {"properties.chapter_number": 1}).
 
     Returns:
         A list of matching edge documents.
@@ -160,7 +165,10 @@ def query_kg_edges(query: dict[str, Any], as_of_chapter: int | None = None) -> l
     else:
         temporal_query["valid_to"] = None
 
-    return list(edges.find(temporal_query, {"_id": 0}))
+    cursor = edges.find(temporal_query, {"_id": 0})
+    if sort:
+        cursor = cursor.sort(list(sort.items()))
+    return list(cursor)
 
 
 @tool(args_schema=AddNodeArgs)

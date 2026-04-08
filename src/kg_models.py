@@ -281,11 +281,13 @@ class UpdateEdgeArgs(BaseModel):
 class QueryNodesArgs(BaseModel):
     query: Dict[str, Any] = Field(description="MongoDB query dictionary (e.g., {'type': 'Character', 'properties.faction': 'Stark'}).")
     as_of_chapter: Optional[int] = Field(default=None, description="If provided, retrieves the state of nodes as they existed at this chapter.")
+    sort: Optional[Dict[str, int]] = Field(default=None, description="Optional sort dictionary (e.g., {'properties.chapter_number': 1}).")
 
 
 class QueryEdgesArgs(BaseModel):
     query: Dict[str, Any] = Field(description="MongoDB query dictionary (e.g., {'type': 'KNOWS', 'from': 'char_arya'}).")
     as_of_chapter: Optional[int] = Field(default=None, description="If provided, retrieves the state of edges as they existed at this chapter.")
+    sort: Optional[Dict[str, int]] = Field(default=None, description="Optional sort dictionary (e.g., {'properties.chapter_number': 1}).")
 
 
 class ProposedUpdate(BaseModel):

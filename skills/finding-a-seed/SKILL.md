@@ -57,10 +57,10 @@ All output is returned in `artifacts`. The brain applies the quality gate before
     "seed": "<1–3 sentence seed statement>",
     "generation_method": "<which method(s) produced it and brief reasoning>",
     "validation_record": {
-      "concreteness": "<PASS/FAIL with note>",
-      "generative_tension": "<PASS/FAIL with note>",
-      "emotional_necessity": "<PASS/FAIL with note>",
-      "open_architecture": "<PASS/FAIL with note>"
+      "concreteness": "PASS — <one sentence explaining why>",
+      "generative_tension": "PASS — <one sentence explaining why>",
+      "emotional_necessity": "PASS — <one sentence explaining why>",
+      "open_architecture": "PASS — <one sentence explaining why>"
     },
     "genre_theme_fit": "<brief statement of genre inhabitation and theme engagement>",
     "questions": ["<5–10 questions the seed makes inevitable>"]
@@ -80,6 +80,8 @@ All output is returned in `artifacts`. The brain applies the quality gate before
   "thematic_interdependencies": "<standalone | interdependent | primary_plus_resonant>"
 }
 ```
+
+**CRITICAL: The four validation criteria (`concreteness`, `generative_tension`, `emotional_necessity`, `open_architecture`) MUST be nested INSIDE the `validation_record` object. Do not flatten them into the `seed_document` root.**
 
 The `genre`, `subgenres`, `themes`, and `thematic_interdependencies` fields are echoed in artifacts so that downstream skills (Defining Rough Endpoints, Worldbuilding) receive them from the brain's context dict without requiring a KG read.
 

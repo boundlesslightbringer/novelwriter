@@ -25,10 +25,10 @@
     "seed": "A woman kneels in a throne room before a court assembled to witness her execution. She is the last legitimate heir to the throne. The king who ordered her execution is her son.",
     "generation_method": "Character-First combined with 'What If?' — began with the impossible situation and asked what psychology could produce both figures without either being a monster.",
     "validation_record": {
-      "concreteness": "PASS - specific room, specific moment, specific relationship; fully placeable.",
-      "generative_tension": "PASS - raises more questions than it resolves; the history, the political necessity, and the human cost are all implied and none explained.",
-      "emotional_necessity": "PASS - the mother/son structure makes the stake immediately and universally legible.",
-      "open_architecture": "PASS - compatible with multiple narrative structures; no specific plot implied."
+      "concreteness": "PASS — specific room, specific moment, specific relationship; fully placeable.",
+      "generative_tension": "PASS — raises more questions than it resolves; the history, the political necessity, and the human cost are all implied and none explained.",
+      "emotional_necessity": "PASS — the mother/son structure makes the stake immediately and universally legible.",
+      "open_architecture": "PASS — compatible with multiple narrative structures; no specific plot implied."
     },
     "genre_theme_fit": "Political Fantasy / Dark Fantasy: throne room, court, succession machinery are genre-native; darkness is human, not supernatural. Theme 1 (Legitimacy and inheritance): The execution is a legitimacy act. Theme 2 (What we make / what we become): The mother made the king; the king is executing the maker. Both themes are structurally inseparable in this seed — interdependency holds.",
     "questions": [

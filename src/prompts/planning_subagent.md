@@ -47,37 +47,86 @@ When receiving a request from the brain:
 
 ## Response Format
 
-Return all output in a structured JSON object. Place skill output in `artifacts`. For chained skills, include each skill's output as a named key within `artifacts`.
+Return all output in a structured JSON object. Place skill output directly in `artifacts`. Do not nest the output under the skill name unless explicitly required by a chained skill scenario. For single skill invocations, the output must be flat as per the skill spec.
 
-**Single skill:**
+**Success (finding-a-seed):**
+
+`validation_record` is required and must never be null. It must contain exactly four keys: concreteness, generative_tension, emotional_necessity, open_architecture. Each value is a string starting with PASS or FAIL followed by a one-sentence explanation. Omitting or nulling this field is a schema violation.
+
 ```json
 {
   "status": "success",
-  "summary": "Executed finding-a-seed for a Political Fantasy novel.",
+  "summary": "Generated a validated story seed for a High Fantasy novel.",
   "artifacts": {
-    "skill_used": "finding-a-seed",
-    "seed_idea": "...",
-    "questions_raised": ["..."]
+    "seed_document": {
+      "seed": "<1–3 sentence seed statement>",
+      "generation_method": "<method>",
+      "validation_record": {
+        "concreteness": "PASS — <one sentence explaining why>",
+        "generative_tension": "PASS — <one sentence explaining why>",
+        "emotional_necessity": "PASS — <one sentence explaining why>",
+        "open_architecture": "PASS — <one sentence explaining why>"
+      },
+      "genre_theme_fit": "<fit statement>",
+      "questions": ["<5–10 questions>"]
+    },
+    "candidate_seeds_log": [
+      {
+        "seed_statement": "<1–3 sentences>",
+        "method": "<method>",
+        "strengths": "<strengths>",
+        "failure_point": "<failure point>",
+        "status": "Rejected | Merged | Held as alternative"
+      }
+    ],
+    "genre": "<genre>",
+    "themes": ["<theme>"]
   }
 }
 ```
 
-**Chained skills:**
+**Success (defining-rough-endpoints Pass 1):**
 ```json
 {
   "status": "success",
-  "summary": "Executed finding-a-seed and defining-rough-endpoints for a Political Fantasy novel.",
+  "summary": "Established the story's starting situation and draft milestones.",
   "artifacts": {
-    "finding-a-seed": {
-      "seed_idea": "...",
-      "questions_raised": ["..."]
-    },
-    "defining-rough-endpoints": {
-      "starting_situation": "...",
-      "vague_ending": "...",
-      "milestones": ["...", "..."],
-      "core_conflict_question": "..."
-    }
+    "prologue_specification": "<optional>",
+    "starting_situation": "...",
+    "draft_ending_destination": "...",
+    "draft_milestones": [
+      {
+        "milestone_name": "...",
+        "description": "..."
+      }
+    ],
+    "character_slot_sketches": [
+      {
+        "role": "...",
+        "implied_contradiction": "...",
+        "stakes": "...",
+        "world_context": "...",
+        "open_questions": ["..."]
+      }
+    ],
+    "draft_core_conflict_question": "...",
+    "compass_notes": "..."
+  }
+}
+```
+
+**Success (worldbuilding):**
+```json
+{
+  "status": "success",
+  "summary": "Constructed the political and geographical architecture of the world.",
+  "artifacts": {
+    "political_power_map": [],
+    "geography": [],
+    "cultures_customs_religion": [],
+    "history_and_legends": [],
+    "magic_system": {},
+    "location_connections": []
   }
 }
 ```
@@ -85,10 +134,11 @@ Return all output in a structured JSON object. Place skill output in `artifacts`
 **Error:**
 ```json
 {
-  "status": "error",
+  "status": "failed",
   "summary": "No endpoint compass provided. Run defining-rough-endpoints first.",
   "artifacts": {
-    "skill_attempted": "worldbuilding"
+    "skill_attempted": "worldbuilding",
+    "error": "Missing required context: endpoint_compass"
   }
 }
 ```

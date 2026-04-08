@@ -88,6 +88,8 @@ class BaseWorkerSubagent:
             "- Execute only the task provided by the orchestrator brain.\n"
             "- Do not answer as the top-level assistant.\n"
             f"- {tool_instruction}\n"
+            "- `status` MUST be exactly one of: 'success', 'need_input', 'blocked', 'failed'. "
+            "No other values are valid. Never use 'completed', 'done', 'ok', or any other variant.\n"
             "- The `summary` field must be ONE sentence describing what you did. \n"
             "- ALL generated content — seed text, character data, scene drafts, analysis, structured records — MUST be serialised as a JSON-serialisable dict in `artifacts`. \n"
             "- CRITICAL: The `artifacts` dictionary MUST NOT BE EMPTY. If you do not have any artifacts to return, you must still return a non-empty dictionary, for example `{\"result\": \"success\"}`.\n"

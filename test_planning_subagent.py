@@ -1,55 +1,74 @@
+"""
+Integration test: runs the real planning subagent chain (Vertex / Gemini).
+
+Run with output visible:
+  uv run pytest test_planning_subagent.py -s -v -m integration
+"""
+
 import json
 import os
-from dotenv import load_dotenv
-from src.config import NovelWriterConfig
-from src.agents.workers import PlanningSubagent
+from typing import Any
 
-def main() -> None:
-    # Load environment variables
-    load_dotenv()
-    
-    """Test the PlanningSubagent in isolation."""
-    # Initialize configuration
-    print("Initializing configuration...")
+import pytest
+
+from src.agents.workers import PlanningSubagent
+from src.config import NovelWriterConfig
+from src.world_bible_tools import _get_db, init_kg_db
+
+
+@pytest.fixture(autouse=True)
+def setup_test_db() -> None:
+    os.environ["MONGODB_DB_NAME"] = "novelwriter_test_kg"
+    init_kg_db("novelwriter_test_kg")
+    db = _get_db()
+    db.nodes.delete_many({})
+    db.edges.delete_many({})
+
+    yield
+
+    db.nodes.delete_many({})
+    db.edges.delete_many({})
+
+
+@pytest.mark.integration
+def test_finding_a_seed() -> None:
     config = NovelWriterConfig()
-    
-    # Initialize the Planning Subagent
-    print("Initializing PlanningSubagent...")
-    planning_subagent = PlanningSubagent(config)
-    
-    # Construct the mock state with the detailed orchestrator task
-    mock_state = {
+    subagent = PlanningSubagent(config)
+
+    state = {
+        "worker_request": {
+            "task": "Use finding-a-seed to generate a rich conceptual seed for a High Fantasy novel.",
+            "context": {
+                "genre": "High Fantasy",
+                "themes": ["divinity vs reality", "the cost of immortality"]
+            },
+        },
         "messages": [],
         "worker_history": [],
-        "worker_request": {
-            "worker": "planning_subagent",
-            "task": "Generate a rich conceptual seed for a High Fantasy novel that explores what happens when high divinity comes into contact with baser material reality. Include: core thematic premise, central tension/conflict, tonal register, suggested narrative scope, key worldbuilding pillars, and 2–3 rough story endpoint possibilities. Make it evocative, philosophically layered, and generative — something a novelist can build a full world from.",
-            "context": {},
-            "reasoning": "Testing the planning subagent in isolation."
-        }
     }
-    
-    # Invoke the subagent
-    print("Invoking PlanningSubagent with mock state (this may take a moment)...")
-    result_state = planning_subagent.invoke(mock_state)
-    print(result_state)
-    
-    # Extract results
-    latest_result = result_state.get("latest_worker_result", {})
-    result_data = latest_result.get("result", {})
-    
-    status = result_data.get("status", "UNKNOWN")
-    summary = result_data.get("summary", "No summary provided.")
-    artifacts = result_data.get("artifacts", {})
-    
-    # Print results
-    print("\n" + "="*80)
-    print(f"STATUS: {status}")
-    print(f"SUMMARY: {summary}")
-    print("="*80)
-    print("ARTIFACTS (Conceptual Seed):")
-    print(json.dumps(artifacts, indent=2))
-    print("="*80)
 
-if __name__ == "__main__":
-    main()
+    print("\n=== Phase: invoke PlanningSubagent (finding-a-seed) ===")
+    result = subagent.invoke(state)
+
+    latest_result = result.get("latest_worker_result", {})
+    assert latest_result, "Worker result is empty"
+
+    structured_result = latest_result.get("result", {})
+    status = structured_result.get("status")
+    artifacts = structured_result.get("artifacts", {})
+
+    print(f"\nWorker status: {status}")
+    if status != "success":
+        print(f"Failure detail: {json.dumps(artifacts, indent=2, default=str)}")
+    assert status == "success", f"Worker failed: {artifacts.get('error', artifacts)}"
+
+    print("\n=== Full artifacts (truncated strings for readability) ===")
+    print(json.dumps(artifacts, indent=2, default=str)[:12000])
+
+    assert "seed_document" in artifacts, "Missing 'seed_document' in artifacts"
+    seed_doc = artifacts["seed_document"]
+    assert seed_doc, "seed_document is empty"
+    assert "validation_record" in seed_doc, "Missing 'validation_record' in seed_document"
+    assert seed_doc["validation_record"], "validation_record is empty"
+
+    print("\n=== Test gate passed ===\n")
