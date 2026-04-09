@@ -1,0 +1,87 @@
+---
+description: Apply these fixes to every worker .md prompt file. Auto-attach when editing src/prompts/*.md
+alwaysApply: false
+---
+# Worker Prompt Hardening — Five Required Fixes
+
+Apply ALL five fixes every time you edit a worker .md prompt file.
+Do not apply selectively. Do not assume a previous session applied them.
+
+---
+
+## Fix A — Non-nullable nested fields
+Every required nested field in the artifact schema must be shown fully
+populated and explicitly marked as non-nullable.
+
+Add after every nested field in the schema example:
+  "<field_name>" is required and must never be null.
+
+High-risk fields by worker:
+  writing_subagent:
+    scene-construction: draft_prose, scene_metadata (all sub-keys),
+      kg_context_used (all sub-keys)
+    pov-consistency-maintenance: audit_header.overall_status,
+      violation_log, each violation entry's four sub-keys
+    pacing: scene_rhythm_register, character_psychology_summary,
+      tension_flags
+
+  consequence_subagent:
+    consequence-cascade-implementation: cascade_chain (with action field),
+      consequence_bombs, character_state_updates, relationship_updates,
+      knowledge_matrix_updates
+
+  For arrays: empty array [] is valid. null is never valid.
+
+---
+
+## Fix B — Status values constrained
+Add to the response format section of every worker prompt:
+  status MUST be exactly one of: "success", "need_input", "blocked", "failed"
+  Never use: "completed", "done", "ok", "error", or any other variant.
+
+---
+
+## Fix C — logical_id query examples
+Add to Story State Access section:
+  # Correct: use logical_id to filter specific nodes
+  query_kg_nodes(
+      query={"logical_id": "<the_id>", "type": "<NodeType>"},
+      as_of_chapter=<chapter_context>
+  )
+  # Wrong: do NOT use pov_character_id, character_id, or id as filter keys
+
+---
+
+## Fix D — from/to edge field names
+Add to Story State Access section:
+  # Correct: edge fields are 'from' and 'to'
+  query_kg_edges(
+      query={"from": "<logical_id>", "type": "KNOWS"},
+      as_of_chapter=<chapter_context>
+  )
+  # Wrong: do NOT use from_node, to_node, from_id, to_id
+
+---
+
+## Fix E — Execution order
+Add to Story State Access section or at top of instructions:
+  Execute in this order:
+  1. Call ALL required KG queries (do not begin reasoning until results arrive)
+  2. Load the skill file via progressive_skill_loader
+  3. Generate output using KG results + skill content
+  4. Return WorkerResponse
+
+  Never interleave tool calls with reasoning.
+  Never start skill reasoning before all KG queries have returned.
+
+---
+
+## Verification checklist before saving any .md prompt file
+
+- [ ] Every required nested field shown fully populated in schema example
+- [ ] "must never be null" instruction present for each required nested field
+- [ ] Status constraint paragraph present ("exactly one of...")
+- [ ] logical_id query example present in Story State Access
+- [ ] from/to edge field example present (not from_node/to_node)
+- [ ] Execution order section present
+- [ ] as_of_chapter used in every query example

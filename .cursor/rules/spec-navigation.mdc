@@ -1,0 +1,68 @@
+---
+description: ORCHESTRATOR_SPEC_v4.md navigation guide. Always active.
+alwaysApply: false
+---
+# Spec Navigation — What to Read for What Task
+
+ORCHESTRATOR_SPEC_v4.md is long. Read only the sections relevant to the
+current task. Do not read the full spec on every request.
+
+## Task → Spec sections
+
+Editing writing_subagent or consequence_subagent:
+  §9.4 Writing Subagent Skills (full)
+  §9.5 Consequence Subagent Skills (full)
+  §8 Skill Design Philosophy (§8.1–§8.4)
+
+Implementing resolution_subagent:
+  §14 Contradiction Detection and Resolution Flow
+  §7 Tool Access Matrix (resolution_subagent row)
+  §5.3 Quality gate decision tree (blocked status handling)
+
+Editing brain.py or brain.md:
+  §5 Brain Node (full)
+  §6 Routing Function
+  §13.15 simultaneous_events forwarding
+
+Wiring orchestrator.py:
+  §3 Graph Topology
+  §6 Routing Function
+  §15 Checkpointer Architecture
+
+Debugging KG queries:
+  §7 Tool Access Matrix
+  §13.6 Chapter sort ordering
+  §13.7 as_of_chapter parameter
+  §13.9 Logical ID consistency
+
+Writing or fixing tests:
+  §11.1 Novel bootstrap flow (Phase 6 bootstrap test)
+  §11.2 Standard scene cycle (Phase 6 scene test)
+  §12 Story State Record Lifecycle (which nodes exist when)
+
+Checking what records a skill should produce:
+  §12 Story State Record Lifecycle (the full table)
+
+Checking brain routing After a specific worker:
+  §9.1–§9.5 — the "Brain routing after" row for each skill
+
+Checking what context keys a worker expects:
+  §9.1–§9.5 — the "Key context keys" row for each skill
+
+## Section numbers at a glance
+
+§3  Graph topology and node inventory
+§4  State schema (OrchestratorState fields)
+§5  Brain node (BrainDecision, quality gate, operating rules)
+§6  Routing function (route_from_brain, VALID_WORKERS)
+§7  Tool access matrix (who has which tools)
+§8  Skill design philosophy (quality checks as enforcement)
+§9  Per-skill interface reference (all 19 skills)
+§10 Character integration chain (internal LangChain implementation)
+§11 Cross-skill data flows (bootstrap, scene cycle, forwarding)
+§12 Story State record lifecycle (which records exist when)
+§13 Implementation pointers (ordered by severity)
+§14 Contradiction detection and resolution flow
+§15 Checkpointer architecture (two MongoDB databases)
+§16 File change summary
+§17 Open risks

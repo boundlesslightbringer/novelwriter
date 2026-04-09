@@ -1,0 +1,103 @@
+---
+description: Phase 6 resolution subagent and brain wiring requirements. Auto-attach on relevant files.
+globs: src/orchestrator.py,src/brain.py,src/prompts/brain.md,src/prompts/resolution_subagent.md
+alwaysApply: false
+---
+
+# Phase 6 — Resolution Subagent and Brain Wiring
+
+## resolution_subagent tool access
+Has: query_kg_nodes, query_kg_edges, add_kg_node, update_kg_node,
+     add_kg_edge, update_kg_edge
+Does NOT have: detect_kg_contradiction, init_kg_db
+Rationale: resolution_subagent implements targeted fixes, not gates.
+
+## ANALYSE mode output contract
+{
+  "mode": "ANALYSE",
+  "contradiction_id": "<from input>",
+  "briefing": "<plain language prose for the user — NO module IDs,
+               NO JSON field names, NO database terminology>",
+  "resolution_options": [<2-4 options>],
+  "recommended_option": "<option_id>",
+  "recommendation_rationale": "<one sentence>"
+}
+
+briefing is required and must never be null.
+Always include one "Accept as intentional ambiguity" option when
+narratively plausible.
+Always set recommended_option.
+
+## IMPLEMENT mode output contract
+On success:
+{
+  "mode": "IMPLEMENT",
+  "status": "RESOLVED",
+  "contradiction_id": "<from input>",
+  "resolution_type": "Resolved | Accepted as intentional ambiguity",
+  "writes_executed": [<list of executed writes>],
+  "module_5_3_updated": true,
+  "re_issue_signal": {
+    "action": "RE_ISSUE_BLOCKED_WRITE",
+    "originating_write_type": "<write_type>",
+    "note": "Resolution complete. Re-issue the blocked write."
+  }
+}
+
+Either all writes succeed or none are committed.
+On any write failure: return status "RESOLUTION_FAILED" with failed_at_step.
+
+## Five brain wiring checks — verify all before Phase 6 end-to-end run
+
+### 1. Contradiction routing
+When story_state_manager returns status: "blocked":
+  brain action = "delegate" to resolution_subagent with mode: "ANALYSE"
+NOT: action = "respond", NOT: action = "clarify"
+The quality gate decision tree must handle "blocked" separately from "failed".
+
+### 2. simultaneous_events forwarding
+After multiple-pov-structure returns:
+  brain must pass BOTH of these into gardener-plotting-system context:
+    - recommended_next_pov.character_id → as pov_character_id
+    - simultaneous_events → as simultaneous_events key
+This does not happen automatically. The brain.md registry card After
+field for plotting_subagent must explicitly state this requirement.
+
+### 3. Quality gate skip for infrastructure workers
+In brain.py quality gate:
+  if worker in {"story_state_manager", "resolution_subagent"}:
+      skip quality gate entirely
+      proceed with workflow continuation
+Must be checked BEFORE the quality gate logic, not inside it.
+
+### 4. Persist-before-continue
+After any creative worker returns verdict="accept" with structured records:
+  brain next action = "delegate" to story_state_manager
+  brain does NOT begin the next creative task first
+This is Operating Rule 3 in brain.md. Verify it is actionable, not just
+present as text.
+
+### 5. rejection_count in turn_input
+In main.py turn_input dict:
+  "rejection_count": 0   ← must be present and reset each turn
+If absent, the reject budget from Phase 2 will not reset between turns.
+
+## Phase 6 bootstrap KG verification
+After running the §11.1 bootstrap flow, query the KG and assert:
+  PlotThread nodes exist (from defining-rough-endpoints Pass 2)
+  Payoff nodes exist (from defining-rough-endpoints Pass 2)
+  Faction nodes exist (from worldbuilding)
+  Location nodes exist (from worldbuilding)
+  Culture nodes exist (from worldbuilding)
+  Event nodes with is_historical=true exist (from worldbuilding)
+  MagicSystem nodes exist (from worldbuilding)
+  Character nodes exist (from character pipeline)
+
+Assert: worker_history contains 8-12 entries
+Assert: no entry has result.status == "failed"
+
+## Phase 6 first-scene KG verification
+After running the §11.2 scene cycle, additionally assert:
+  Chapter nodes exist (brain → story_state_manager after scene acceptance)
+  At least one writing_subagent entry in worker_history has non-empty
+    artifacts.draft_prose

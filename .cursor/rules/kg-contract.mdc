@@ -1,0 +1,45 @@
+---
+description: KG access boundaries and field name contracts. Always active.
+alwaysApply: false
+---
+# KG Access Contract
+
+## Who can read
+All workers: query_kg_nodes, query_kg_edges
+
+## Who can write
+story_state_manager only: add_kg_node, update_kg_node, add_kg_edge,
+update_kg_edge, detect_kg_contradiction, init_kg_db
+
+resolution_subagent: add_kg_node, update_kg_node, add_kg_edge,
+update_kg_edge (targeted resolution writes only, no detect or init)
+
+## Field name contract
+CORRECT                    WRONG
+logical_id                 character_id, pov_character_id, node_id, id
+from                       from_node, from_id, source
+to                         to_node, to_id, target
+as_of_chapter              chapter, at_chapter, chapter_number
+properties.voice_profile   voice_profile (top level), properties.voice
+
+## Temporal versioning
+Every node and edge has valid_from (int) and valid_to (int or null).
+Active records have valid_to = null.
+Querying without as_of_chapter returns records where valid_to = null.
+Querying with as_of_chapter=N returns records where:
+  valid_from <= N AND (valid_to IS NULL OR valid_to > N)
+
+## voice_profile co-location
+The voice profile is stored as properties.voice_profile on the Character
+node — not as a separate node, not as a separate query.
+Retrieve it in the same query_kg_nodes call as the psychological record.
+If properties.voice_profile is absent on a pov_eligible character,
+return status: "need_input". Do not proceed without it.
+
+## Execution order in every worker skill invocation
+1. Run ALL required KG queries first
+2. Load skill file via progressive_skill_loader
+3. Generate output using KG results + skill content
+4. Return WorkerResponse with structured artifacts
+
+Never interleave KG queries with reasoning or skill loading.

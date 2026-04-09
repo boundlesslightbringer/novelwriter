@@ -1,0 +1,94 @@
+---
+description: Quick debugging reference for recurring failures. Always active.
+alwaysApply: false
+---
+# Debugging Quick Reference
+
+## Symptom → Diagnosis → Fix
+
+### character_node_found: false (all KG counts are 0)
+Diagnosis: LLM using pov_character_id as filter key instead of logical_id
+Fix: Add explicit query example to worker .md prompt showing logical_id
+
+### knows_edges_found: 0 (character found but edges not)
+Diagnosis: LLM using from_node instead of from in edge query
+Fix: Add explicit edge query example showing from and to (not from_node/to_node)
+
+### obstacle: null / the_choice: null / validation_record: null
+Diagnosis: Bug A — required nested field not enforced as non-nullable
+Fix: Show field fully populated in schema example + "must never be null"
+
+### status: "completed" instead of "success"
+Diagnosis: Bug B — status values not constrained
+Fix: Verify _build_runtime_prompt in base.py has explicit status constraint
+
+### Warning: non-text parts in response ['function_call']
+Diagnosis: Gemini emitting function_call and text in same response; SDK drops call
+Fix: max_iterations=10 in create_agent + execution order instruction in prompt
+
+### "No response provided" at end of turn
+Diagnosis: final_response is None or empty when respond_node runs
+Fix: Check iteration limit triggers; check final_response field name matches
+     OrchestratorState exactly; add debug print inside iteration limit block
+
+### Brain loops N times without responding
+Diagnosis: reject budget not enforced (rejection_count not in state)
+Fix: Add rejection_count to OrchestratorState; reset to 0 in turn_input;
+     increment on reject verdict; escalate after 2 rejections
+
+### Task: None on re-delegation
+Diagnosis: brain.md does not require task to be populated on re-delegation
+Fix: Add to brain.md: "When re-delegating after reject, task must be
+     non-empty — copy original task and append rejection reason"
+
+### KG query finds node at wrong chapter
+Diagnosis: as_of_chapter not passed, returning current state instead of
+           chapter-scoped state
+Fix: Always pass as_of_chapter=chapter_context in every query call
+
+### pov-consistency-maintenance test fails because scene-construction fails
+Diagnosis: Tests are chained — Test 2 depends on Test 1 output
+Fix: Use hardcoded draft in pov-consistency-maintenance test; make it independent
+
+### resolve_subagent briefing contains module IDs or JSON field names
+Diagnosis: briefing is written for developers not users
+Fix: resolution_subagent.md must state: "briefing is plain language prose
+     for the user — no module IDs, no JSON field names, no system mechanics"
+
+---
+
+## Before asking for help, always check
+
+1. What does kg_context_used show? (zero counts = query contract mismatch)
+2. What does the Warning line say? (function_call = tool loop issue)
+3. Is the exact field name in the query matching world_bible_tools.py?
+4. Is the test fixture seeded at the same chapter_context passed in context?
+5. Does the worker .md prompt have all five hardening fixes applied?
+
+---
+
+## Model assignment
+
+Brain: gemini-3.1-pro-preview
+  temperature: 0.7 (routing decisions benefit from lower temp)
+  Reason: nested QualityVerdict in BrainDecision requires Pro reliability
+
+Workers: gemini-3-flash-preview (default)
+  temperature: 1.0 (creative output benefits from higher temp)
+  Override in config.py agent_llm_overrides if a specific worker is unstable
+
+---
+
+## Key file locations
+
+KG tool signatures:        src/world_bible_tools.py
+KG Pydantic schemas:       src/kg_models.py
+Worker base class:         src/agents/base.py
+Worker definitions:        src/agents/workers.py
+Brain logic:               src/brain.py
+State schema:              src/state.py
+Config:                    src/config.py
+Orchestrator graph:        src/orchestrator.py
+Internal chain:            src/character_integration_chain.py
+Worker prompts:            src/prompts/<worker>.md
+Skill files:               skills/<skill-name>/SKILL.md

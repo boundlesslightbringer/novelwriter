@@ -1,0 +1,151 @@
+---
+description: Test fixture and assertion patterns. Auto-attach when editing test_*.py
+alwaysApply: false
+---
+# Test Patterns for Novelwriter Integration Tests
+
+## Test file structure
+Follow test_character_integration_chain.py and test_plotting_subagent.py
+as the canonical patterns. Every test file must have:
+
+1. @pytest.fixture(autouse=True) setup_test_db that:
+   - Sets MONGODB_DB_NAME to "novelwriter_test_kg"
+   - Calls init_kg_db("novelwriter_test_kg")
+   - Deletes all nodes and edges before the test
+   - Seeds the specific nodes required for this skill
+   - Yields (cleanup runs on exit)
+
+2. @pytest.mark.integration on every test function
+
+3. Run command in docstring:
+   uv run pytest <filename> -s -v -m integration
+
+---
+
+## KG fixture requirements by skill
+
+### scene-construction
+Requires Character node with FULL voice_profile sub-record in properties.
+Minimum voice_profile structure (all five dimensions required):
+{
+  "vocabulary_range": {
+    "lexical_register": "informal, direct",
+    "signature_vocabulary_categories": ["spatial", "threat assessment"],
+    "avoids": ["courtly register"]
+  },
+  "sentence_structure_patterns": {
+    "default_sentence_length": "short and declarative",
+    "structural_habits": "observation before interpretation",
+    "under_stress": "fragments, no subordination"
+  },
+  "observational_focus": {
+    "primary_lens": "exits and physical threats",
+    "secondary_lens": "who holds leverage",
+    "systematic_blind_spots": "emotional need in others",
+    "how_they_read_people": "hands and feet before faces"
+  },
+  "internal_thought_patterns": {
+    "deliberative_style": "instinct-first",
+    "self_monitoring": "minimal",
+    "memory_intrusion": "sensory triggers only",
+    "relationship_to_time": "present-focused"
+  },
+  "emotional_processing_style": {
+    "speed_of_acknowledgment": "slow",
+    "internal_expression": "displaced onto physical observation",
+    "what_they_cannot_look_at": "own complicity in past failures",
+    "under_extreme_pressure": "affect flattens"
+  }
+}
+
+Also seed: KnowledgeItem node + KNOWS edge for the character.
+Also seed: Location node for the scene setting.
+
+### pov-consistency-maintenance
+Do NOT chain from scene-construction output. Use a hardcoded draft.
+The hardcoded draft MUST contain at least one deliberate violation so
+VIOLATIONS FOUND is the expected result and violation_log can be verified.
+
+Standard violation to embed (head-hop):
+DRAFT_WITH_VIOLATION = (
+    "Elara pressed herself against the cold stone wall. "
+    "The guards were two corridors away — she could hear their boots. "
+    "She needed the eastern passage. "
+    "Kael, waiting outside, felt a surge of anxiety as he wondered "
+    "if she had been caught. "
+    "She moved toward the drain cover and pulled it open."
+)
+Expected: overall_status == "VIOLATIONS FOUND"
+Expected: violation_log contains entry with violation_type == "Head-Hopping"
+
+### consequence-cascade-implementation
+Requires TWO Character nodes + ONE RELATIONSHIP edge between them.
+The consequence must propagate across the relationship to be meaningful.
+Also seed: an existing CascadeChain node to test the extend_existing path.
+
+### gardener-plotting-system (already tested — do not modify)
+Pattern in test_plotting_subagent.py is the reference.
+
+---
+
+## Assertions — required for every test
+
+### Universal assertions
+assert status == "success"
+assert latest_result, "Worker result is empty"
+assert artifacts, "Artifacts is empty"
+
+### scene-construction specific
+assert artifacts.get("draft_prose"), "draft_prose is empty"
+prose = artifacts["draft_prose"]
+assert not prose.startswith("{"), "draft_prose contains JSON"
+assert "```" not in prose, "draft_prose contains code blocks"
+assert not any(line.startswith("#") for line in prose.split("\n")),
+    "draft_prose contains markdown headers"
+assert artifacts.get("scene_metadata") is not None
+assert artifacts["scene_metadata"].get("pov_character_id")
+assert "kg_context_used" in artifacts
+assert artifacts["kg_context_used"].get("character_node_found") is True
+
+### pov-consistency-maintenance specific
+assert "audit_header" in artifacts
+overall_status = artifacts["audit_header"].get("overall_status")
+assert overall_status in ("CLEAN", "VIOLATIONS FOUND")
+assert "violation_log" in artifacts
+assert isinstance(artifacts["violation_log"], list)
+if overall_status == "VIOLATIONS FOUND":
+    assert len(artifacts["violation_log"]) > 0
+    for entry in artifacts["violation_log"]:
+        assert "violation_type" in entry
+        assert "offending_text" in entry
+        assert "description" in entry
+        assert "correction_note" in entry
+
+### consequence-cascade-implementation specific
+assert "cascade_chain" in artifacts
+assert artifacts["cascade_chain"].get("action") in ("create_new", "extend_existing")
+assert "consequence_bombs" in artifacts
+bombs = artifacts["consequence_bombs"]
+assert isinstance(bombs, list)
+assert len(bombs) > 0, "No consequence bombs generated"
+for bomb in bombs:
+    trigger = bomb.get("properties", {}).get("detonation_trigger", "")
+    assert trigger, "detonation_trigger is empty"
+    # Must be a condition, not a chapter number
+    assert not trigger.strip().startswith("Ch."), \
+        f"detonation_trigger is a chapter number: {trigger}"
+    assert not trigger.strip()[:3].replace(".", "").isdigit(), \
+        f"detonation_trigger starts with a number: {trigger}"
+assert "character_state_updates" in artifacts
+assert isinstance(artifacts["character_state_updates"], list)
+
+---
+
+## What NOT to do in tests
+
+Never assert on exact prose content — scene output is non-deterministic.
+Never chain Test 2 output from Test 1 output — tests must be independent.
+Never skip the KG fixture — workers will return character_node_found: false.
+Never pass empty context dicts — workers will return need_input or fail silently.
+Never use chapter_context=0 for gardener-plotting-system — use a chapter > 0
+  where your fixture data was seeded.
