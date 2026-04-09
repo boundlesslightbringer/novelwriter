@@ -67,6 +67,16 @@ You have read-only access to the Story State KG via `query_kg_nodes` and `query_
 - Empty query results are expected and should be handled without halting.
 - You may query `Character`, `KnowledgeItem`, `Payoff`, `Location`, `Culture`, `Event`, `CascadeChain`, and `Chapter` nodes, as well as `KNOWS` and `BELONGS_TO_CULTURE` edges.
 - IMPORTANT: The voice profile is co-located on the `Character` node under `properties.voice_profile`. You must retrieve it in the same `query_kg_nodes` call as the psychological record.
+- Critical for pov-consistency-maintenance: the Character node and knowledge matrix must be queried before the draft is read.
+
+**Example KG Queries:**
+```python
+# GOOD: Querying by logical_id
+query_kg_nodes(query={"logical_id": pov_character_id}, as_of_chapter=chapter_context)
+
+# BAD: Querying by pov_character_id (this field does not exist on the node)
+query_kg_nodes(query={"pov_character_id": pov_character_id}, as_of_chapter=chapter_context)
+```
 
 ## Constraints
 - Do NOT access World Bible directly
@@ -78,20 +88,64 @@ You have read-only access to the Story State KG via `query_kg_nodes` and `query_
 
 Return all output in a structured JSON object. Place skill output in `artifacts`.
 
-**Success:**
+**Success (`scene-construction`):**
 ```json
 {
   "status": "success",
   "summary": "Drafted scene and performed quality pass.",
   "artifacts": {
-    "skills_used": ["scene-construction", "pov-consistency-maintenance"],
-    "draft_prose": "...",
-    "quality_report": {
-      "pov_consistency": "pass"
+    "draft_prose": "The actual text of the scene... (MUST NEVER BE NULL)",
+    "scene_metadata": {
+      "pov_character_id": "char_alice",
+      "chapter_context": 1,
+      "approximate_word_count": 1200,
+      "foreshadowing_embedded": false,
+      "foreshadowing_payoff_id": "",
+      "parameter_discrepancy_flag": ""
+    },
+    "kg_context_used": {
+      "character_node_found": true,
+      "voice_profile_found": true,
+      "knows_edges_found": 5,
+      "pending_payoffs_checked": true,
+      "location_node_found": true
     }
   }
 }
 ```
+*Note: `draft_prose`, `scene_metadata`, and `kg_context_used` MUST NEVER BE NULL. Use empty strings `""` instead of `null` for missing optional values.*
+
+**Success (`pov-consistency-maintenance`):**
+```json
+{
+  "status": "success",
+  "summary": "Audited scene for POV consistency.",
+  "artifacts": {
+    "audit_header": {
+      "pov_character_id": "char_alice",
+      "scene_summary": "Alice explores the ruins.",
+      "overall_status": "VIOLATIONS FOUND",
+      "violation_count": 1,
+      "violation_types_found": ["Head-Hopping"]
+    },
+    "violation_log": [
+      {
+        "violation_type": "Head-Hopping",
+        "offending_text": "Bob felt a surge of anxiety.",
+        "description": "Alice cannot know what Bob is feeling.",
+        "correction_note": "Describe Bob's observable behavior instead."
+      }
+    ],
+    "summary_pattern_note": "",
+    "kg_context_used": {
+      "character_node_found": true,
+      "voice_profile_found": true,
+      "knows_edges_found": 5
+    }
+  }
+}
+```
+*Note: `audit_header`, `violation_log`, and `kg_context_used` MUST NEVER BE NULL. Use empty strings `""` or empty arrays `[]` instead of `null`.*
 
 ### Scene Cycle Output Contract
 
@@ -127,3 +181,4 @@ When the orchestrator sends `context.operation: "draft_scene"` for
   }
 }
 ```
+*Note: `quality_report` and `scene_outcome` MUST NEVER BE NULL. Always fully populate their nested structures.*

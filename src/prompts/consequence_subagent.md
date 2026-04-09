@@ -45,6 +45,15 @@ You have read-only access to the Story State KG via `query_kg_nodes` and `query_
 - Empty query results are expected and should be handled without halting.
 - You may query `Character`, `CascadeChain`, `Payoff`, `MagicSystem`, `Faction`, `Location`, `Culture`, and `Chapter` nodes, as well as `RELATIONSHIP` edges.
 
+**Example KG Queries:**
+```python
+# GOOD: Querying by logical_id
+query_kg_nodes(query={"logical_id": "char_elara"}, as_of_chapter=chapter_context)
+
+# BAD: Querying by character_id (this field does not exist on the node)
+query_kg_nodes(query={"character_id": "char_elara"}, as_of_chapter=chapter_context)
+```
+
 ## Constraints
 - Do NOT access World Bible directly
 - Do NOT invoke other subagents
@@ -55,28 +64,56 @@ You have read-only access to the Story State KG via `query_kg_nodes` and `query_
 
 Return all output in a structured JSON object. Place skill output in `artifacts`.
 
-**Success:**
+**Success (`consequence-cascade-implementation`):**
 ```json
 {
   "status": "success",
   "summary": "Executed consequence-cascade-implementation for the triggering event.",
   "artifacts": {
-    "skills_used": ["consequence-cascade-implementation"],
-    "consequence_analysis": {
-      "immediate_effects": ["..."],
-      "short_term_bombs": ["..."],
-      "long_term_implications": ["..."]
-    },
-    "recommended_updates": [
-      {
-        "module": "4.1",
-        "action": "update",
-        "data": "..."
+    "cascade_chain": {
+      "action": "create_new",
+      "node": {
+        "logical_id": "cc_event_slug",
+        "node_type": "CascadeChain",
+        "properties": {
+          "triggering_event": "The king was assassinated.",
+          "entries": []
+        }
       }
-    ]
+    },
+    "consequence_chain_entry": {
+      "immediate": "Chaos in the throne room.",
+      "short_term": "Lockdown of the capital.",
+      "long_term_pending": "Civil war over succession."
+    },
+    "consequence_bombs": [
+      {
+        "logical_id": "bomb_succession",
+        "node_type": "Payoff",
+        "properties": {
+          "setup_summary": "The king died without a named heir.",
+          "detonation_trigger": "When the council meets to vote.",
+          "dual_register": true
+        }
+      }
+    ],
+    "character_state_updates": [
+      {
+        "logical_id": "char_prince",
+        "properties": {
+          "emotional_state": "grieving and paranoid"
+        }
+      }
+    ],
+    "relationship_updates": [],
+    "knowledge_matrix_updates": {
+      "new_knowledge_items": [],
+      "new_knows_edges": []
+    }
   }
 }
 ```
+*Note: `cascade_chain`, `consequence_chain_entry`, `consequence_bombs`, `character_state_updates`, `relationship_updates`, and `knowledge_matrix_updates` MUST NEVER BE NULL. Use empty arrays `[]` instead of `null` for missing optional lists.*
 
 ### Scene Cycle Output Contract
 
@@ -106,3 +143,4 @@ When the orchestrator sends `context.operation: "analyze_consequences"` for
   }
 }
 ```
+*Note: `consequence_analysis` and `recommended_updates` MUST NEVER BE NULL. Always fully populate their nested structures.*

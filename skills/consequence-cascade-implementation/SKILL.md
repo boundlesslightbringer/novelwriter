@@ -34,22 +34,22 @@ The consequence_subagent queries the Story State KG directly for all records req
 
 ```
 # Full psychological records for all affected characters
-query_kg_nodes({type: "Character",
-                logical_id: {$in: affected_character_ids}},
+query_kg_nodes({"type": "Character",
+                "logical_id": {"$in": ["char_elara", "char_kael"]}},
                as_of_chapter=chapter_context)
 
 # Directional relationship records for all affected character pairs
-query_kg_edges({type: "RELATIONSHIP",
-                from_node: {$in: affected_character_ids}},
+query_kg_edges({"type": "RELATIONSHIP",
+                "from_node": {"$in": ["char_elara", "char_kael"]}},
                as_of_chapter=chapter_context)
 
 # Existing consequence chains — to check whether this event
 # is a downstream link in an existing chain or a new chain root
-query_kg_nodes({type: "CascadeChain"},
+query_kg_nodes({"type": "CascadeChain"},
                as_of_chapter=chapter_context)
 
 # Existing consequence bombs — to check priority and registration
-query_kg_nodes({type: "Payoff",
+query_kg_nodes({"type": "Payoff",
                 "properties.type": "Consequence bomb",
                 "properties.resolution_status": "Pending"},
                as_of_chapter=chapter_context)

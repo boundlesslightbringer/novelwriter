@@ -159,6 +159,12 @@ class BaseWorkerSubagent:
 
     def invoke(self, state: Dict[str, Any], config: RunnableConfig | None = None) -> Dict[str, Any]:
         """Execute the worker node and store its structured result."""
+        # Enforce a sane recursion limit to prevent infinite tool-calling loops
+        if config is None:
+            config = {}
+        if "recursion_limit" not in config:
+            config["recursion_limit"] = 15
+
         worker_request = state.get("worker_request")
         if not worker_request:
             return {

@@ -61,12 +61,48 @@ When receiving a request from the brain:
 
 3. **Return integrated output to brain.**
 
+## Execution order
+
+1. Call all required KG queries first (see Story State Access section).
+   Do not begin skill reasoning until all queries have returned results.
+2. Load the skill file via progressive_skill_loader.
+3. Generate the scene parameters using KG results and skill content.
+4. Return the complete WorkerResponse.
+
 ## Story State Access
 You have read-only access to the Story State KG via `query_kg_nodes` and `query_kg_edges`.
 - You MUST use `as_of_chapter = chapter_context` in all KG queries to ensure you are reading the state of the world at the correct point in time.
 - Empty query results are expected and should be handled without halting.
 - You may query `Chapter`, `Event`, `Character`, `PlotThread`, `Payoff`, `KnowledgeItem`, and `CascadeChain` nodes, as well as `KNOWS`, `INVOLVES`, `CONNECTED_TO`, `DEPENDS_ON`, `PAYS_OFF_IN`, and `RELATIONSHIP` edges.
 - IMPORTANT: When querying `Chapter` nodes, you must sort the results by `properties.chapter_number` after retrieval, as the query does not guarantee ordering.
+
+The correct field to filter characters by is `logical_id`, not `pov_character_id`. Examples:
+
+```python
+# Fetch the POV character node
+query_kg_nodes(
+    query={"logical_id": "<pov_character_id value>", "type": "Character"},
+    as_of_chapter=<chapter_context value>
+)
+
+# Fetch the POV character's knowledge edges  
+query_kg_edges(
+    query={"from": "<pov_character_id value>", "type": "KNOWS"},
+    as_of_chapter=<chapter_context value>
+)
+
+# Fetch active plot threads involving this character
+query_kg_edges(
+    query={"to": "<pov_character_id value>", "type": "INVOLVES"},
+    as_of_chapter=<chapter_context value>
+)
+
+# Fetch CascadeChain nodes
+query_kg_nodes(
+    query={"type": "CascadeChain"},
+    as_of_chapter=<chapter_context value>
+)
+```
 
 ## Constraints
 - Do NOT access World Bible directly
@@ -85,13 +121,32 @@ Return all output in a structured JSON object. Place skill output in `artifacts`
   "summary": "Executed gardener-plotting-system for Chapter 1.",
   "artifacts": {
     "skills_used": ["gardener-plotting-system"],
-    "planning_output": {
-      "scene_parameters": {
-        "goal": "...",
-        "obstacle": "...",
-        "choice": "...",
-        "projected_consequence": "..."
-      }
+    "scene_parameters": {
+      "goal": "...",
+      "obstacle": {
+        "description": "...",
+        "components": {
+          "external": "...",
+          "interpersonal": "...",
+          "internal": "..."
+        }
+      },
+      "the_choice": {
+        "description": "...",
+        "option_a": "...",
+        "option_b": "...",
+        "tests_core_contradiction": true
+      },
+      "character_logic_audit": "...",
+      "projected_consequence": "..."
+    },
+    "kg_context_used": {
+      "knows_edges_found": 1,
+      "active_threads_found": 1,
+      "cascade_chains_found": 1
+    },
+    "foreshadowing_opportunity": {
+      "present": true
     },
     "recommendations": ["..."]
   }
@@ -109,26 +164,55 @@ When the orchestrator sends `context.operation: "plan_chapter"` for
   "summary": "Planned chapter structure and POV assignment.",
   "artifacts": {
     "skills_used": ["multiple_pov_structure", "gardener_plotting_system", "plot_thread_tracking"],
-    "planning_output": {
-      "pov_assignment": {
-        "selected_pov": "CharacterName",
-        "selection_rationale": "Why this POV is best now"
-      },
-      "scene_parameters": {
-        "goal": "What the POV wants in this scene",
-        "obstacle": "What blocks the goal",
-        "choice": "The hard decision taken",
-        "projected_consequence": "Likely fallout if choice is made"
-      },
-      "thread_status": [
-        {
-          "thread_id": "thread_<slug>",
-          "status": "active|dormant|resolved",
-          "note": "How this scene should advance or pressure the thread"
+    "pov_assignment": {
+      "selected_pov": "CharacterName",
+      "selection_rationale": "Why this POV is best now"
+    },
+    "scene_parameters": {
+      "goal": "What the POV wants in this scene",
+      "obstacle": {
+        "description": "<required — what prevents trivial achievement>",
+        "components": {
+          "external": "<required — world state or conflicting characters>",
+          "interpersonal": "<required — null only if no other characters present>",
+          "internal": "<required — POV character's psychology making this harder>"
         }
-      ]
+      },
+      "the_choice": {
+        "description": "<required — the decision the POV character faces>",
+        "option_a": "<required — first option and its specific cost>",
+        "option_b": "<required — second option and its specific cost>",
+        "tests_core_contradiction": true
+      },
+      "character_logic_audit": "<required — 2-4 sentences confirming every element follows from the POV character's psychology as retrieved from the KG Character node. Must not be null or empty.>",
+      "projected_consequence": "Likely fallout if choice is made"
+    },
+    "thread_status": [
+      {
+        "thread_id": "thread_<slug>",
+        "status": "active|dormant|resolved",
+        "note": "How this scene should advance or pressure the thread"
+      }
+    ],
+    "kg_context_used": {
+      "knows_edges_found": 1,
+      "active_threads_found": 1,
+      "cascade_chains_found": 1
+    },
+    "foreshadowing_opportunity": {
+      "present": true
     },
     "recommendations": ["Optional next-step recommendation"]
   }
 }
 ```
+
+The following fields inside `scene_parameters` are required and must never be null or absent:
+- `obstacle` (and its nested `description` and `components`)
+- `the_choice` (and its nested `description`, `option_a`, `option_b`)
+- `character_logic_audit`
+
+The following fields inside `artifacts` are required and must never be null or absent:
+- `scene_parameters`
+- `kg_context_used`
+- `foreshadowing_opportunity`

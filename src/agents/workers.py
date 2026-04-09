@@ -95,14 +95,12 @@ class StoryStateManager(BaseWorkerSubagent):
 class ResolutionSubagent(BaseWorkerSubagent):
     def __init__(self, config: NovelWriterConfig):
         tools = [
-            init_kg_db,
             query_kg_nodes,
             query_kg_edges,
             add_kg_node,
             update_kg_node,
             add_kg_edge,
             update_kg_edge,
-            detect_kg_contradiction,
         ]
         super().__init__(
             name="resolution_subagent",
