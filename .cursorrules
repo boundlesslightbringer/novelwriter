@@ -23,10 +23,15 @@ Phases 1–5a are complete and verified. Do not modify passing tests.
 3. All creative workers return KG-ready records in artifacts.
    story_state_manager persists them. This is a one-way flow.
 4. Workers never call other workers. Only the brain routes.
-5. character_subagent runs an internal LangChain chain for character
-   integration (character-desire-network → character-knowledge-expansion
-   + character-relationship-matrix). This is the only internal chain.
-   All other workers use progressive_skill_loader → LLM.
+5. Workers may implement **internal chains/subgraphs** (LangChain or LangGraph)
+   when it materially improves reliability/observability (branching, validation
+   gates, multi-source context, recovery paths).
+   - This must remain **internal**: workers still never call other workers.
+   - Creative workers still remain **read-only** against the KG (rules 1–3).
+   - Default path remains `progressive_skill_loader → LLM` unless a structured
+     chain/subgraph is warranted.
+6. `character_subagent` character-integration chain remains a canonical example:
+   character-desire-network → (character-knowledge-expansion + character-relationship-matrix).
 
 ## MongoDB field names — memorise these, do not guess
 - Filter characters by: logical_id (NOT character_id, NOT pov_character_id)

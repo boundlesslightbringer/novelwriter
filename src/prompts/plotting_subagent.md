@@ -18,8 +18,10 @@ Use the exact `skill_name` provided in parentheses when calling the `progressive
 ### gardener-plotting-system
 Drives scene-by-scene discovery: POV goal, obstacle, choice, consequence.
 
-**Input:** Current POV character state; plot threads; consequence ledger.
-**Output:** Scene parameters (goal, obstacle, choice, projected consequence).
+**Input:** `pov_character_id`, `chapter_context`, `last_scene_outcome`; optional `pacing_guidance`, `simultaneous_events`, `include_foreshadowing_check`.
+**Output:** Scene parameters (`scene_goal`, obstacle, choice, `projected_consequence_shape`) plus thread/consequence flags.
+
+If the request is a follow-up from `multiple-pov-structure`, the brain must pass `simultaneous_events` into the `gardener-plotting-system` context dict.
 
 ### multiple-pov-structure
 Manages POV assignment across chapters, rotation logic, simultaneous event synchronization.
@@ -65,9 +67,12 @@ When receiving a request from the brain:
 
 1. Call all required KG queries first (see Story State Access section).
    Do not begin skill reasoning until all queries have returned results.
-2. Load the skill file via progressive_skill_loader.
+2. Load the skill file via `progressive_skill_loader`.
 3. Generate the scene parameters using KG results and skill content.
 4. Return the complete WorkerResponse.
+
+For `gardener-plotting-system`, execution may run through an internal subgraph path.
+The response contract and field names below still apply.
 
 ## Story State Access
 You have read-only access to the Story State KG via `query_kg_nodes` and `query_kg_edges`.
@@ -122,7 +127,7 @@ Return all output in a structured JSON object. Place skill output in `artifacts`
   "artifacts": {
     "skills_used": ["gardener-plotting-system"],
     "scene_parameters": {
-      "goal": "...",
+      "scene_goal": "...",
       "obstacle": {
         "description": "...",
         "components": {
@@ -138,17 +143,24 @@ Return all output in a structured JSON object. Place skill output in `artifacts`
         "tests_core_contradiction": true
       },
       "character_logic_audit": "...",
-      "projected_consequence": "..."
+      "projected_consequence_shape": "..."
     },
+    "active_thread_flags": [],
+    "active_consequence_flags": [],
     "kg_context_used": {
+      "character_node_found": true,
       "knows_edges_found": 1,
       "active_threads_found": 1,
-      "cascade_chains_found": 1
+      "cascade_chains_found": 1,
+      "pending_payoffs_checked": true
     },
     "foreshadowing_opportunity": {
-      "present": true
+      "present": true,
+      "payoff_id": "payoff_<slug>",
+      "payoff_description": "...",
+      "organic_integration_note": "..."
     },
-    "recommendations": ["..."]
+    "parameter_discrepancy_flag": ""
   }
 }
 ```
@@ -163,13 +175,13 @@ When the orchestrator sends `context.operation: "plan_chapter"` for
   "status": "success",
   "summary": "Planned chapter structure and POV assignment.",
   "artifacts": {
-    "skills_used": ["multiple_pov_structure", "gardener_plotting_system", "plot_thread_tracking"],
+    "skills_used": ["multiple-pov-structure", "gardener-plotting-system", "plot-thread-tracking"],
     "pov_assignment": {
       "selected_pov": "CharacterName",
       "selection_rationale": "Why this POV is best now"
     },
     "scene_parameters": {
-      "goal": "What the POV wants in this scene",
+      "scene_goal": "What the POV wants in this scene",
       "obstacle": {
         "description": "<required — what prevents trivial achievement>",
         "components": {
@@ -185,7 +197,7 @@ When the orchestrator sends `context.operation: "plan_chapter"` for
         "tests_core_contradiction": true
       },
       "character_logic_audit": "<required — 2-4 sentences confirming every element follows from the POV character's psychology as retrieved from the KG Character node. Must not be null or empty.>",
-      "projected_consequence": "Likely fallout if choice is made"
+      "projected_consequence_shape": "Likely fallout shape if choice is made"
     },
     "thread_status": [
       {
@@ -194,6 +206,7 @@ When the orchestrator sends `context.operation: "plan_chapter"` for
         "note": "How this scene should advance or pressure the thread"
       }
     ],
+    "simultaneous_events": [],
     "kg_context_used": {
       "knows_edges_found": 1,
       "active_threads_found": 1,

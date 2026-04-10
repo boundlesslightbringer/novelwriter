@@ -138,9 +138,6 @@ def setup_test_db() -> None:
 
     yield
 
-    db.nodes.delete_many({})
-    db.edges.delete_many({})
-
 
 @pytest.mark.integration
 def test_gardener_plotting_system() -> None:
@@ -151,10 +148,12 @@ def test_gardener_plotting_system() -> None:
         "worker_request": {
             "task": "Use gardener-plotting-system to determine the next scene parameters for Elara.",
             "context": {
+                "skill": "gardener-plotting-system",
                 "pov_character_id": "char_elara",
                 "chapter_context": 5,
                 "last_scene_outcome": "Elara successfully stole the cursed artifact but triggered the alarm and is now trapped in the city guard's vault.",
                 "include_foreshadowing_check": True,
+                "simultaneous_events": [],
             },
         },
         "messages": [],
@@ -179,6 +178,8 @@ def test_gardener_plotting_system() -> None:
     print("\n=== Full artifacts (truncated strings for readability) ===")
     print(json.dumps(artifacts, indent=2, default=str)[:12000])
 
+    assert "skills_used" in artifacts, "Missing 'skills_used' in artifacts"
+    assert "gardener-plotting-system" in artifacts["skills_used"], "Expected gardener skill marker"
     assert "scene_parameters" in artifacts, "Missing 'scene_parameters' in artifacts"
     scene_params = artifacts["scene_parameters"]
     assert "character_logic_audit" in scene_params, "Missing 'character_logic_audit' in scene_parameters"
@@ -187,11 +188,14 @@ def test_gardener_plotting_system() -> None:
     assert scene_params.get("the_choice") is not None, "the_choice is null"
 
     kg_context_used = artifacts.get("kg_context_used", {})
-    assert kg_context_used.get("knows_edges_found", 0) > 0, "No KNOWS edges found"
-    assert kg_context_used.get("active_threads_found", 0) > 0, "No active threads found"
-    assert kg_context_used.get("cascade_chains_found", 0) > 0, "No cascade chains found"
+    assert kg_context_used.get("character_node_found") is True, "Character node was not found"
+    assert kg_context_used.get("knows_edges_found", 0) == 1, "Unexpected KNOWS edge count"
+    assert kg_context_used.get("active_threads_found", 0) == 1, "Unexpected active thread count"
+    assert kg_context_used.get("cascade_chains_found", 0) == 1, "Unexpected cascade chain count"
+    assert kg_context_used.get("pending_payoffs_checked") is True, "Pending payoff check did not run"
 
     foreshadowing_opportunity = artifacts.get("foreshadowing_opportunity", {})
     assert foreshadowing_opportunity.get("present") is True, "Foreshadowing opportunity not present"
+    assert foreshadowing_opportunity.get("payoff_id"), "Missing foreshadowing payoff_id"
 
     print("\n=== Test gate passed ===\n")

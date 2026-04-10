@@ -8,7 +8,7 @@ class LLMConfig(BaseModel):
     """Configuration for an LLM model."""
     model_name: str = Field(default="gemini-3.1-pro-preview")
     model_provider: str = Field(default="google_genai")
-    temperature: float = Field(default=1)
+    temperature: float = Field(default=0.5)
     top_p: Optional[float] = Field(default=0.95)
     top_k: Optional[int] = Field(default=None)
     seed: Optional[int] = Field(default=None)

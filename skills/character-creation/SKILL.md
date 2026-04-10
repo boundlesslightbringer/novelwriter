@@ -102,8 +102,8 @@ All output is returned in `artifacts` as KG-ready records, structured for direct
     {
       "logical_id": "knows_<char_slug>_<item_slug>",
       "edge_type": "KNOWS",
-      "from_node": "char_<slug>",
-      "to_node": "ki_<slug>",
+      "from": "char_<slug>",
+      "to": "ki_<slug>",
       "chapter": 0,
       "properties": {
         "status": "KNOWS | BELIEVES | SUSPECTS | DOES NOT KNOW",
@@ -127,8 +127,8 @@ All output is returned in `artifacts` as KG-ready records, structured for direct
     {
       "logical_id": "rel_<char_a_slug>_<char_b_slug>",
       "edge_type": "RELATIONSHIP",
-      "from_node": "char_<slug>",
-      "to_node": "char_<other_slug>",
+      "from": "char_<slug>",
+      "to": "char_<other_slug>",
       "chapter": 0,
       "properties": {
         "emotional_valence": "<love | hate | fear | debt | respect | contempt | loyalty | distrust | etc.>",
@@ -144,8 +144,8 @@ All output is returned in `artifacts` as KG-ready records, structured for direct
   "culture_edge": {
     "logical_id": "culture_<char_slug>",
     "edge_type": "BELONGS_TO_CULTURE",
-    "from_node": "char_<slug>",
-    "to_node": "culture_<slug>",
+    "from": "char_<slug>",
+    "to": "culture_<slug>",
     "chapter": 0,
     "properties": {
       "role": "<their role within this culture>"
@@ -269,7 +269,11 @@ Relationship edges are directional. If building two records (A→B and B→A), i
 
 ### Step 11 — Assemble and return artifacts
 
-Assemble the full artifacts dict with all KG-ready records. Set `status: "success"`. If this was built in early invocation context (empty world records), set `provisional_expansion_flag = true` and note which fields need expansion once Worldbuilding records exist in the Story State KG.
+Assemble the full artifacts dict with all KG-ready records. Set status to one of the allowed worker status values only: `success`, `need_input`, `blocked`, or `failed` (use `success` for complete outputs).
+
+All required nested fields must be non-null. If a value is unknown, use an empty string `""` or empty array `[]`, not `null`.
+
+If this was built in early invocation context (empty world records), set `provisional_expansion_flag = true` and note which fields need expansion once Worldbuilding records exist in the Story State KG.
 
 ---
 
