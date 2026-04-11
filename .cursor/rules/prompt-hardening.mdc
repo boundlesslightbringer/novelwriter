@@ -1,22 +1,44 @@
 ---
-description: Apply these fixes to every worker .md prompt file. Auto-attach when editing src/prompts/*.md
+description: Guardrails for worker .md prompts — full five-fix checklist when using large monolithic skill loads; subset for outer shell when work lives in subgraphs/chains. Auto-attach when editing src/prompts/*.md
 alwaysApply: false
 ---
-# Worker Prompt Hardening — Five Required Fixes
+# Worker Prompt Hardening — Five Guardrails (Fixes A–E)
 
-Apply ALL five fixes every time you edit a worker .md prompt file.
-Do not apply selectively. Do not assume a previous session applied them.
+Many historical integration failures traced to **very long skills presented as one
+monolithic system prompt** per outer worker turn. Implementations now often use
+**internal LangGraph subgraphs or sequential chains** so each LLM step sees a smaller
+prompt; per-worker integration tests have been **stable since those refactors**.
+
+Use this file as **guardrails**, not as proof of active bugs:
+
+- **Outer worker `.md` (brain-facing system prompt):** Always keep **Fix C**
+  (`logical_id`), **Fix D** (`from` / `to` on edges), and **as_of_chapter** on every
+  query example in **Story State Access**. Keep **Fix B** (exact `status` literals)
+  unless `src/agents/base.py` already enforces it (it does for all workers).
+- **When the worker still loads a large skill in one outer `create_agent` turn, or
+  you add a new monolithic path:** Apply **all five fixes (A–E)** below on that prompt
+  surface, including **Fix A** (non-null nested schema examples) and **Fix E**
+  (KG queries before `progressive_skill_loader`).
+- **When the heavy work lives only inside subgraph/chain node prompts:** Ensure each
+  **inner** step prompt that calls tools or returns structured JSON still satisfies
+  the parts of A–E that apply there (especially A for nested artifacts and E for any
+  step that loads a skill after KG reads).
+
+See **HANDOFF_DOCUMENT.md §3**, **ORCHESTRATOR_SPEC.md §8.5**, and **`.cursorrules`**
+(architecture rule 5 and the paragraph on subgraphs vs monolithic prompts).
 
 ---
 
 ## Fix A — Non-nullable nested fields
-Every required nested field in the artifact schema must be shown fully
-populated and explicitly marked as non-nullable.
+
+Every required nested field in the artifact schema for that prompt surface must be
+shown fully populated and explicitly marked as non-nullable.
 
 Add after every nested field in the schema example:
   "<field_name>" is required and must never be null.
 
-High-risk fields by worker:
+High-risk fields by worker (when those skills run on this prompt surface):
+
   writing_subagent:
     scene-construction: draft_prose, scene_metadata (all sub-keys),
       kg_context_used (all sub-keys)
@@ -35,14 +57,19 @@ High-risk fields by worker:
 ---
 
 ## Fix B — Status values constrained
-Add to the response format section of every worker prompt:
+
+Add to the response format section of every worker prompt (if not redundant with
+runtime contract):
+
   status MUST be exactly one of: "success", "need_input", "blocked", "failed"
   Never use: "completed", "done", "ok", "error", or any other variant.
 
 ---
 
 ## Fix C — logical_id query examples
+
 Add to Story State Access section:
+
   # Correct: use logical_id to filter specific nodes
   query_kg_nodes(
       query={"logical_id": "<the_id>", "type": "<NodeType>"},
@@ -53,7 +80,9 @@ Add to Story State Access section:
 ---
 
 ## Fix D — from/to edge field names
+
 Add to Story State Access section:
+
   # Correct: edge fields are 'from' and 'to'
   query_kg_edges(
       query={"from": "<logical_id>", "type": "KNOWS"},
@@ -63,8 +92,11 @@ Add to Story State Access section:
 
 ---
 
-## Fix E — Execution order
-Add to Story State Access section or at top of instructions:
+## Fix E — Execution order (KG before skill load)
+
+Add to Story State Access section or at top of instructions for any prompt surface
+that uses `progressive_skill_loader` in the same agent as KG tools:
+
   Execute in this order:
   1. Call ALL required KG queries (do not begin reasoning until results arrive)
   2. Load the skill file via progressive_skill_loader
@@ -74,14 +106,15 @@ Add to Story State Access section or at top of instructions:
   Never interleave tool calls with reasoning.
   Never start skill reasoning before all KG queries have returned.
 
+For **subgraph inner nodes** that only run after a parent step already fetched KG
+data, state the ordering that applies **within that node** (often: use injected KG
+summary first, then load skill, then emit structured output).
+
 ---
 
 ## Verification checklist before saving any .md prompt file
 
-- [ ] Every required nested field shown fully populated in schema example
-- [ ] "must never be null" instruction present for each required nested field
-- [ ] Status constraint paragraph present ("exactly one of...")
-- [ ] logical_id query example present in Story State Access
-- [ ] from/to edge field example present (not from_node/to_node)
-- [ ] Execution order section present
-- [ ] as_of_chapter used in every query example
+- [ ] Story State Access includes **Fix C**, **Fix D**, and **as_of_chapter** on every query example
+- [ ] **Fix B** present or acknowledged as enforced in `BaseWorkerSubagent` runtime prompt
+- [ ] If this file still drives a **large single-turn** skill load: **Fix A** and **Fix E** complete on this surface
+- [ ] If editing only a **subgraph inner** prompt: nested artifacts and tool order for **that** step are consistent with A/E as applicable

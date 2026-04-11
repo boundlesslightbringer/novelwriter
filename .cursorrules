@@ -6,14 +6,13 @@ One brain node + seven worker subagents. Workers read from a MongoDB
 knowledge graph (Story State KG). Only story_state_manager writes to it.
 
 ## Authoritative reference
-ORCHESTRATOR_SPEC_v4.md is the authoritative design document.
+ORCHESTRATOR_SPEC.md is the authoritative design document (version 4.0 in the spec header).
 When code and prompt examples disagree with the spec, the spec wins.
 Do not infer design decisions — check the spec first.
 
 ## Current development position
-Phase 5b (writing_subagent, consequence_subagent) and Phase 6
-(resolution_subagent, end-to-end verification) remain.
-Phases 1–5a are complete and verified. Do not modify passing tests.
+Phase 6 (resolution_subagent, end-to-end verification) remains.
+Phases 1–5b are complete and verified. Do not modify passing tests.
 
 ## Non-negotiable architecture rules
 1. Creative workers (planning, character, plotting, writing, consequence)
@@ -32,6 +31,13 @@ Phases 1–5a are complete and verified. Do not modify passing tests.
      chain/subgraph is warranted.
 6. `character_subagent` character-integration chain remains a canonical example:
    character-desire-network → (character-knowledge-expansion + character-relationship-matrix).
+
+Many historical integration failures (null nested artifacts, dropped tool calls,
+wrong KG filter fields) traced to **very long monolithic skills** in a single agent
+turn. **Subgraphs and sequential chains** split that work into smaller LLM steps;
+recent integration tests have not reproduced those issues after those refactors.
+HANDOFF_DOCUMENT.md §3 keeps the old “Bug A–E” material as **guardrails** for new
+or monolithic paths, not as an active bug checklist.
 
 ## MongoDB field names — memorise these, do not guess
 - Filter characters by: logical_id (NOT character_id, NOT pov_character_id)
@@ -64,16 +70,19 @@ Brain node: gemini-3.1-pro-preview (gemini-3-flash-preview is unreliable
 for the nested QualityVerdict schema in BrainDecision)
 Workers: gemini-3-flash-preview is acceptable
 
-## Before editing any worker .md prompt file
-1. Apply the logical_id query fix (see .cursor/rules/prompt-hardening.mdc)
-2. Apply the from/to edge field fix
-3. Apply the non-nullable nested field fix
-4. Add execution order instruction (KG queries before skill load)
+## Before editing any worker .md prompt file (or adding a monolithic skill path)
+1. Prefer an internal chain/subgraph when a skill is large or multi-phase (see
+   architecture rule 5) instead of one huge progressive_skill_loader block.
+2. For prompts that still drive big single-turn skill loads, apply the logical_id
+   query pattern, from/to edge fields, non-nullable nested artifact examples, and
+   KG-queries-before-skill-load ordering (see .cursor/rules/prompt-hardening.mdc).
 
 ## Before running any test
-1. Verify all four fixes above are applied to the worker being tested
-2. Verify max_iterations=10 is set in BaseWorkerSubagent._build_agent
-3. Verify the KG fixture seeds all node types the skill will query
+1. Ensure the KG fixture seeds every node/edge type the worker or subgraph will query.
+2. If you change `BaseWorkerSubagent._build_agent`, keep `max_iterations=10` on
+   `create_agent` unless you have a deliberate reason not to.
+3. For workers still on monolithic skill-in-prompt flows, double-check the four
+   prompt-hardening items in the previous section.
 
 ## File structure
 src/

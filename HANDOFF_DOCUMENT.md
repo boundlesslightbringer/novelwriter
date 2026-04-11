@@ -2,7 +2,7 @@
 
 **Prepared for:** Fresh Claude instance in Cursor
 **Project:** novelwriter — a LangGraph orchestrator-worker agent for Gardener-style novel writing
-**Handoff point:** Phase 5a complete and verified; Phase 5b and Phase 6 remain
+**Handoff point:** Phases 1–5b complete and verified; Phase 6 remains
 
 ---
 
@@ -14,7 +14,7 @@ plotting). The system has one brain node (orchestrator) and seven worker subagen
 each responsible for a group of creative skills. Workers read from a MongoDB knowledge
 graph (Story State KG) but only one worker (`story_state_manager`) writes to it.
 
-The authoritative design reference is `ORCHESTRATOR_SPEC_v4.md`. When code and prompt
+The authoritative design reference is `ORCHESTRATOR_SPEC.md` (version 4.0 in the spec header). When code and prompt
 examples disagree with the spec, the spec wins. Only ask the user for guidance if the
 spec itself leaves two materially different implementations open.
 
@@ -52,19 +52,34 @@ populated `validation_record`. `plotting_subagent` passes `test_plotting_subagen
 with non-null `obstacle`, `the_choice`, `character_logic_audit`, and non-zero KG
 context counts.
 
+### Phase 5b — Writing and consequence workers ✓
+`writing_subagent` and `consequence_subagent` use internal chains/subgraphs where
+appropriate, the same Mongo-field and artifact guardrails as earlier workers, and
+passing integration coverage. Section 4 below is a **reference record** of what
+Phase 5b required; it is not open work.
+
 ---
 
-## 3. Known Bugs — Apply Proactively, Do Not Rediscover
+## 3. Historical failure modes and guardrails
 
-These bugs affect all remaining workers. Apply every fix listed here before running
-any test.
+Most of the issues below **showed up when very long skills were presented as one
+monolithic system prompt** (or one enormous skill load per turn), which overloaded
+the model and made it skip tool calls or hollow out nested JSON. A lot of that work
+has moved into **internal subgraphs and sequential chains**, so each LLM step sees
+a smaller, focused instruction set. **Integration tests have not reproduced these
+failure modes since those refactors.**
+
+Keep §3 as **guardrails**, not as an active bug list: preserve the Mongo field
+discipline (`logical_id`, `from`/`to`, `as_of_chapter`) everywhere, and when you
+add or revert to **large monolithic** skill-in-prompt paths, re-apply the patterns
+below before expecting stable structured output.
 
 ### Bug A — Null nested fields
 **Symptom:** Required nested fields (`validation_record`, `obstacle`, `the_choice`,
 `character_logic_audit`, etc.) return as `null` even though the reasoning appears
 in prose elsewhere in the artifacts.
-**Root cause:** Worker system prompt artifact schemas do not enforce nested fields
-as non-nullable.
+**Root cause (historical):** Artifact schema examples and instructions did not
+treat nested objects as mandatory; worst under monolithic prompts.
 **Fix pattern:** In the worker's `.md` prompt file, show every required nested field
 fully populated in the artifact schema example and add: `"<field_name>" is required
 and must never be null.`
@@ -79,8 +94,8 @@ explicit constraint: `status MUST be exactly one of: 'success', 'need_input',
 
 ### Bug C — KG queries returning nothing (`character_node_found: false`)
 **Symptom:** All `kg_context_used` counts are 0 despite correct KG fixture setup.
-**Root cause:** LLM uses the context key name (`pov_character_id`) as the MongoDB
-filter field instead of the actual field name (`logical_id`).
+**Root cause (historical):** Prompts or context used names like `pov_character_id`
+where Mongo expects `logical_id` on Character nodes.
 **Fix pattern:** In the worker's `.md` Story State Access section, add explicit
 query examples showing `logical_id` as the correct filter field:
 ```
@@ -89,35 +104,41 @@ query_kg_nodes(
     as_of_chapter=<chapter_context value>
 )
 ```
-**Action:** Verify this fix is in `plotting_subagent.md`. Apply the same fix to
-`writing_subagent.md` and `consequence_subagent.md` before any testing.
+**Action:** Verify this fix remains in `plotting_subagent.md`, `writing_subagent.md`,
+and `consequence_subagent.md` when editing those prompts.
 
 ### Bug D — `function_call` warning drops tool calls
 **Symptom:** `Warning: there are non-text parts in the response: ['function_call'],
 returning concatenated text result from text parts.`
 **Root cause:** Gemini occasionally emits a function call and text in the same
-response; SDK discards the function call silently.
+response; SDK discards the function call silently. More likely when the model
+mixes long reasoning with tools in one turn.
 **Fix:** Set `max_iterations=10` explicitly in the `create_agent` call inside
 `BaseWorkerSubagent._build_agent`. Also instruct workers in their `.md` prompts
-to call all KG queries before loading the skill file, not interleaved with reasoning.
-**Action:** Verify `max_iterations=10` is present in `_build_agent`. Apply
-execution order instruction to `writing_subagent.md` and `consequence_subagent.md`.
+to call all KG queries before loading the skill file, not interleaved with reasoning
+(less critical when the heavy work sits in subgraph nodes with smaller prompts).
+**Action:** Verify `max_iterations=10` is present in `_build_agent` when changing
+agent setup. Preserve execution-order guidance on any worker that still loads large
+skills in a single outer agent.
 
 ### Bug E — `from_node`/`to_node` vs `from`/`to` in edge queries
 **Symptom:** Edge queries return 0 results even with correct `logical_id` filter.
-**Root cause:** `query_kg_edges` uses `from` and `to` as field names internally,
-but worker prompts were showing `from_node` and `to_node` in query examples.
-**Fix:** Already applied to `plotting_subagent.md`. Apply to `writing_subagent.md`
-and `consequence_subagent.md` — all edge query examples must use `from` and `to`,
-not `from_node` and `to_node`.
+**Root cause (historical):** Prompt examples used `from_node`/`to_node` while
+`query_kg_edges` filters on `from` and `to`.
+**Fix:** Applied in `plotting_subagent.md`, `writing_subagent.md`, and
+`consequence_subagent.md` — all edge query examples must use `from` and `to`,
+not `from_node` and `to_node`. Preserve when editing.
 
 ---
 
-## 4. Phase 5b — Writing and Consequence Workers
+## 4. Phase 5b — Writing and Consequence Workers (complete — reference)
 
-### 4.1 Prompt hardening required before any testing
+The checklist below documents what Phase 5b required. **All items are implemented.**
+Use it when auditing or editing prompts, not as a pre-requisite gate.
 
-**`writing_subagent.md` — apply all of the following:**
+### 4.1 Prompt hardening (implemented)
+
+**`writing_subagent.md` — the following was required (all done):**
 
 1. Bug C fix — add `logical_id` query examples with correct field names
 2. Bug E fix — use `from`/`to` in all edge query examples
@@ -142,7 +163,7 @@ not `from_node` and `to_node`.
    same `query_kg_nodes` call as the psychological record. If absent, return
    `need_input`."
 
-**`consequence_subagent.md` — apply all of the following:**
+**`consequence_subagent.md` — the following was required (all done):**
 
 1. Bug C fix — add `logical_id` query examples
 2. Bug E fix — use `from`/`to` in edge query examples
@@ -157,7 +178,7 @@ not `from_node` and `to_node`.
    - `relationship_updates` — "required array; empty array is valid; never null"
    - `knowledge_matrix_updates` — "required array; empty array is valid; never null"
 
-### 4.2 Test fixture requirements for `test_writing_and_consequence.py`
+### 4.2 Test fixture requirements for `test_writing_and_consequence.py` (reference)
 
 **Character node must include full `voice_profile`:**
 ```python
@@ -221,9 +242,9 @@ relationship. The test should assert:
   `not any(char.isdigit() for char in detonation_trigger[:3])`)
 - `character_state_updates` is a list (empty is acceptable)
 
-### 4.3 Phase 5b test gate
+### 4.3 Phase 5b test gate (passed)
 
-Before moving to Phase 6, all three of these must pass:
+These were the acceptance criteria before closing Phase 5b; all were satisfied:
 1. `draft_prose` is non-empty and contains no JSON, no markdown headers (`#`),
    no code blocks (` ``` `)
 2. `pov-consistency-maintenance` returns `overall_status` of `CLEAN` or
@@ -233,7 +254,7 @@ Before moving to Phase 6, all three of these must pass:
 
 ---
 
-## 5. Phase 6 — Resolution Subagent and End-to-End Verification
+## 5. Phase 6 — Resolution Subagent and End-to-End Verification (remaining)
 
 ### 5.1 Resolution subagent implementation
 
@@ -353,7 +374,7 @@ are already implemented and tested, and including them wastes context.
 ### Always attach
 | File | Why |
 |---|---|
-| `ORCHESTRATOR_SPEC_v4.md` | Authoritative design reference — consult §9.4, §9.5, §13 heavily |
+| `ORCHESTRATOR_SPEC.md` | Authoritative design reference — consult §9.4, §9.5, §8.5, §13 heavily |
 | `src/agents/base.py` | `BaseWorkerSubagent` structure, `_build_runtime_prompt`, `create_agent` call |
 | `src/agents/workers.py` | All worker class definitions; verify tool lists match §7 |
 | `src/brain.py` | Quality gate, routing, reject budget, iteration limit |
@@ -362,12 +383,12 @@ are already implemented and tested, and including them wastes context.
 | `src/world_bible_tools.py` | Tool implementations and actual field names (`from`/`to` not `from_node`/`to_node`) |
 | `src/kg_models.py` | KG Pydantic schemas — verify artifact structures against these |
 
-### Phase 5b files
+### Phase 5b files (implemented — attach only when editing)
 | File | Why |
 |---|---|
-| `src/prompts/writing_subagent.md` | Current state — apply all Bug A/C/D/E fixes here |
-| `src/prompts/consequence_subagent.md` | Current state — apply all Bug A/C/D/E fixes here |
-| `skills/scene-construction/SKILL.md` | Highest Bug A risk in writing group |
+| `src/prompts/writing_subagent.md` | Reference when changing writing worker behaviour |
+| `src/prompts/consequence_subagent.md` | Reference when changing consequence worker behaviour |
+| `skills/scene-construction/SKILL.md` | Scene draft structure — do not weaken constraints |
 | `skills/pov-consistency-maintenance/SKILL.md` | Audit skill — do not simplify instructions |
 | `skills/consequence-cascade-implementation/SKILL.md` | Most structurally complex consequence skill |
 
@@ -388,7 +409,11 @@ are already implemented and tested, and including them wastes context.
 - `src/prompts/planning_subagent.md` — implemented and passing
 - `src/prompts/plotting_subagent.md` — implemented and passing
 - `src/prompts/character_subagent.md` — implemented and passing
+- `src/prompts/writing_subagent.md` — Phase 5b complete
+- `src/prompts/consequence_subagent.md` — Phase 5b complete
 - All character, planning, and plotting skill files — already implemented
+- `skills/scene-construction/SKILL.md`, `skills/pov-consistency-maintenance/SKILL.md`,
+  `skills/consequence-cascade-implementation/SKILL.md` — Phase 5b complete
 - `src/character_integration_chain.py` — Phase 4 complete
 
 ---

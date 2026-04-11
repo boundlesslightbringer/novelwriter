@@ -1,10 +1,10 @@
 ---
-description: ORCHESTRATOR_SPEC_v4.md navigation guide. Always active.
+description: ORCHESTRATOR_SPEC.md navigation guide (v4.0 in document header).
 alwaysApply: false
 ---
 # Spec Navigation — What to Read for What Task
 
-ORCHESTRATOR_SPEC_v4.md is long. Read only the sections relevant to the
+`ORCHESTRATOR_SPEC.md` is long. Read only the sections relevant to the
 current task. Do not read the full spec on every request.
 
 ## Task → Spec sections
@@ -12,7 +12,7 @@ current task. Do not read the full spec on every request.
 Editing writing_subagent or consequence_subagent:
   §9.4 Writing Subagent Skills (full)
   §9.5 Consequence Subagent Skills (full)
-  §8 Skill Design Philosophy (§8.1–§8.4)
+  §8 Skill Design Philosophy (§8.1–§8.5) — include §8.5 subgraphs vs monolithic prompts
 
 Implementing resolution_subagent:
   §14 Contradiction Detection and Resolution Flow
@@ -56,7 +56,7 @@ Checking what context keys a worker expects:
 §5  Brain node (BrainDecision, quality gate, operating rules)
 §6  Routing function (route_from_brain, VALID_WORKERS)
 §7  Tool access matrix (who has which tools)
-§8  Skill design philosophy (quality checks as enforcement)
+§8  Skill design philosophy (quality checks as enforcement; §8.5 internal subgraphs / chains)
 §9  Per-skill interface reference (all 19 skills)
 §10 Character integration chain (internal LangChain implementation)
 §11 Cross-skill data flows (bootstrap, scene cycle, forwarding)

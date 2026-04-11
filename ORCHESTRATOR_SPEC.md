@@ -19,6 +19,8 @@
 | §13 | Pointer 13.15 added for chain implementation; pointer 13.5 updated to reference new skill names |
 | §16 | Skill file list updated for character subagent; chain implementation file added |
 | Throughout | All references to `character-integration-with-plot` as a single skill replaced |
+| §8.5 | New: internal subgraphs/chains vs monolithic prompts — reliability context aligned with HANDOFF §3 |
+| §13.12 | Corrected: multiple workers use internal chains/subgraphs, not only `character_subagent` |
 
 ---
 
@@ -322,6 +324,32 @@ The output schema (the `artifacts` JSON structure in each skill file) provides t
 - The brain's quality gate checks key field presence, so an absent field causes a quality gate rejection and re-delegation
 
 Invest in a precise output schema. Reduce reliance on instruction steps.
+
+### 8.5 Internal subgraphs, sequential chains, and monolithic prompts
+
+Several integration failures that looked like “bad prompts” (null nested `artifacts`,
+wrong Mongo filter keys such as `pov_character_id` instead of `logical_id`, dropped
+tool calls when Gemini mixed text and `function_call` parts) were **most acute when a
+very long skill was loaded into a single outer agent turn** — one enormous instruction
+surface for one `create_agent` loop.
+
+The implementation mitigates this by moving heavy work into **internal LangGraph
+subgraphs or LangChain-style sequential chains** inside workers (`planning_subagent`,
+`plotting_subagent`, `writing_subagent`, `consequence_subagent`, and the existing
+`character_subagent` integration chain, among others). Each LLM step receives a
+**smaller, focused** prompt, which improved structured output and tool use in
+**per-worker integration tests** after those refactors.
+
+- **Default pattern** remains `progressive_skill_loader` → LLM when a single call is
+  appropriate; **prefer** a chain or subgraph when a skill is large or multi-phase.
+- **HANDOFF_DOCUMENT.md §3** keeps the historical “Bug A–E” material as **guardrails**
+  for edits and for any **new monolithic** skill paths — not as an active bug list.
+- **`.cursor/rules/prompt-hardening.mdc`** states when all five fixes are mandatory
+  vs when they apply only to the outer worker prompt.
+- **Full-stack end-to-end** risk is dominated by **brain routing**, **iteration /
+  rejection budgets**, **checkpointers**, and **Mongo isolation** — see the E2E plan
+  in `.cursor/plans/e2e_integration_test_architecture_c70a76d1.plan.md` — not by
+  replaying those historical single-turn prompt failure modes in isolation.
 
 ---
 
@@ -722,11 +750,11 @@ character_nodes = query_kg_nodes(
     as_of_chapter=chapter_context
 )
 existing_relationship_edges = query_kg_edges(
-    {"type": "RELATIONSHIP", "from_node": {"$in": character_ids}},
+    {"type": "RELATIONSHIP", "from": {"$in": character_ids}},
     as_of_chapter=chapter_context
 )
 existing_knows_edges = query_kg_edges(
-    {"type": "KNOWS", "from_node": {"$in": character_ids}},
+    {"type": "KNOWS", "from": {"$in": character_ids}},
     as_of_chapter=chapter_context
 )
 faction_nodes = query_kg_nodes({"type": "Faction"}, as_of_chapter=chapter_context)
@@ -741,6 +769,11 @@ All results are assembled into `kg_context` before `run_chain(kg_context)` is ca
 ---
 
 ## 11. Cross-Skill Data Flows
+
+Bootstrap (§11.1) and scene cycle (§11.2) describe **logical skill order** at the
+brain level. Individual steps may run **inside worker-internal subgraphs or chains**
+(§8.5); end-to-end tests should assert **KG shape and terminal `respond`**, not a fixed
+per-node LLM call count at the worker boundary.
 
 ### 11.1 Novel bootstrap flow
 
@@ -920,7 +953,13 @@ Each step receives only the KG data it needs — desire step receives character 
 
 `character_subagent` must detect `skill: "character-integration"` in `worker_request.context` and branch into `run_integration_chain(kg_context)` rather than the normal `progressive_skill_loader` path. The existing `BaseWorkerSubagent` invocation pattern handles other skills; the integration chain is a special case that bypasses the single-skill loader pattern.
 
-This is the only worker with an internal chain. Other workers use the standard `progressive_skill_loader` → LLM pattern.
+**Update:** `character_subagent` was the first worker with an explicit internal chain.
+**Other workers now also branch into internal subgraphs or chains** (for example
+planning rough-endpoints / worldbuilding, plotting gardener flow, writing scene /
+POV / technique paths, consequence cascade / realism balancing) so heavy skills are
+not always presented as one monolithic outer prompt. See §8.5. The default path for
+simple delegations remains `progressive_skill_loader` → LLM unless a structured
+internal graph is warranted.
 
 ### 13.13 Parallel chain execution (optional optimisation)
 
