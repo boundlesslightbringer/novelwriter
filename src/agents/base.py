@@ -31,7 +31,15 @@ class WorkerResponse(BaseModel):
 class BaseWorkerSubagent:
     """Base class for all worker subagents."""
     
-    def __init__(self, name: str, config: NovelWriterConfig, tools: List[Any], prompt_file: str):
+    def __init__(
+        self,
+        name: str,
+        config: NovelWriterConfig,
+        tools: List[Any],
+        prompt_file: str,
+        *,
+        build_agent: bool = True,
+    ):
         self.name = name
         self.config = config
         self.tools = tools
@@ -42,7 +50,7 @@ class BaseWorkerSubagent:
         prompt_path = src_dir / "prompts" / prompt_file
         self.base_prompt = prompt_path.read_text(encoding="utf-8")
         
-        self.agent = self._build_agent()
+        self.agent = self._build_agent() if build_agent else None
 
     def _build_agent(self) -> Any:
         """Create the LangGraph worker agent."""
@@ -189,6 +197,25 @@ class BaseWorkerSubagent:
             "conversation_transcript": self._messages_to_transcript(state.get("messages", [])),
             "recent_worker_history": state.get("worker_history", [])[-3:],
         }
+
+        if self.agent is None:
+            structured_result = WorkerResponse(
+                status="failed",
+                summary="Worker has no bound agent (subgraph-only worker misconfigured).",
+                artifacts={"error": "missing_agent"},
+            ).model_dump()
+            worker_record = {
+                "worker": self.name,
+                "task": worker_request["task"],
+                "context": worker_request.get("context", {}),
+                "result": structured_result,
+            }
+            return {
+                "latest_worker_result": worker_record,
+                "worker_history": [worker_record],
+                "worker_request": None,
+                "active_worker": None,
+            }
 
         try:
             result = self.agent.invoke(

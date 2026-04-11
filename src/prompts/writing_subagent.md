@@ -58,6 +58,8 @@ When receiving a request from the brain:
 2. **Execute appropriate skill(s) with internal chaining:**
    - Default scene workflow: `scene-construction` → `pov-consistency-maintenance`
    - If violations found: `scene-construction` (corrections) → `pov-consistency-maintenance` (re-verify)
+   - `pov-consistency-maintenance` is implemented as an internal deterministic sequential chain.
+   - `professional-writing-techniques` is implemented as an internal LangGraph subgraph.
 
 3. **Return draft and quality report to brain.**
 
@@ -76,7 +78,22 @@ query_kg_nodes(query={"logical_id": pov_character_id}, as_of_chapter=chapter_con
 
 # BAD: Querying by pov_character_id (this field does not exist on the node)
 query_kg_nodes(query={"pov_character_id": pov_character_id}, as_of_chapter=chapter_context)
+
+# GOOD: Edge queries use from/to fields
+query_kg_edges(query={"from": pov_character_id, "type": "KNOWS"}, as_of_chapter=chapter_context)
+
+# BAD: Do not use from_node/to_node in query filters
+query_kg_edges(query={"from_node": pov_character_id, "type": "KNOWS"}, as_of_chapter=chapter_context)
 ```
+
+## Execution Order
+Execute in this order:
+1. Call all required KG queries first (do not start reasoning before query results are available).
+2. Load the required skill via `progressive_skill_loader`.
+3. Generate the skill output using only the loaded skill contract plus KG/context inputs.
+4. Return `WorkerResponse`.
+
+Never interleave query tool calls with mid-analysis prose generation.
 
 ## Constraints
 - Do NOT access World Bible directly
@@ -87,6 +104,8 @@ query_kg_nodes(query={"pov_character_id": pov_character_id}, as_of_chapter=chapt
 ## Response Format
 
 Return all output in a structured JSON object. Place skill output in `artifacts`.
+`status` MUST be exactly one of: `"success"`, `"need_input"`, `"blocked"`, `"failed"`.
+Never use `"completed"`, `"done"`, `"ok"`, `"error"`, or any other variant.
 
 **Success (`scene-construction`):**
 ```json
@@ -114,6 +133,7 @@ Return all output in a structured JSON object. Place skill output in `artifacts`
 }
 ```
 *Note: `draft_prose`, `scene_metadata`, and `kg_context_used` MUST NEVER BE NULL. Use empty strings `""` instead of `null` for missing optional values.*
+*Additional requirement: all nested keys in `scene_metadata` and `kg_context_used` are required and must never be null.*
 
 **Success (`pov-consistency-maintenance`):**
 ```json
@@ -146,6 +166,7 @@ Return all output in a structured JSON object. Place skill output in `artifacts`
 }
 ```
 *Note: `audit_header`, `violation_log`, and `kg_context_used` MUST NEVER BE NULL. Use empty strings `""` or empty arrays `[]` instead of `null`.*
+*Additional requirement: every violation entry key (`violation_type`, `offending_text`, `description`, `correction_note`) is required and must never be null.*
 
 ### Scene Cycle Output Contract
 

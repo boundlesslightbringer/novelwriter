@@ -30,6 +30,14 @@ Gathers and synthesises factual reference knowledge for any domain requiring rea
 **Input:** A specific research question or domain from the brain.
 **Output:** Factual reference material in structured notes format. Does not make story decisions. Output is passed by the brain to the skill that needs it (e.g. Worldbuilding).
 
+## Required execution order
+
+For every invocation, follow this exact order:
+1. Validate required context fields for the requested skill.
+2. If KG context is needed, run `query_kg_nodes`/`query_kg_edges` first.
+3. Only after required context and KG reads are complete, load and execute the relevant skill instructions.
+4. Return structured output with non-null nested objects and arrays in `artifacts`.
+
 ## Execution Steps
 
 When receiving a request from the brain:
@@ -91,18 +99,28 @@ Return all output in a structured JSON object. Place skill output directly in `a
   "status": "success",
   "summary": "Established the story's starting situation and draft milestones.",
   "artifacts": {
-    "prologue_specification": "<optional>",
+    "pass": 1,
+    "prologue_specification": {
+      "warranted": true,
+      "temporal_relationship": "<how far before Chapter 1>",
+      "pov_or_register": "<whose perspective or what register>",
+      "what_it_establishes": "<what the reader must carry into Ch. 1>",
+      "what_it_withholds": "<what it implies but does not explain>",
+      "relationship_to_milestones": "<whether it is itself a milestone or a precondition>"
+    },
     "starting_situation": "...",
     "draft_ending_destination": "...",
     "draft_milestones": [
       {
-        "milestone_name": "...",
-        "description": "..."
+        "milestone_id": "M1",
+        "description": "...",
+        "character_slots": ["slot_A"]
       }
     ],
     "character_slot_sketches": [
       {
-        "role": "...",
+        "slot_id": "slot_A",
+        "narrative_role": "...",
         "implied_contradiction": "...",
         "stakes": "...",
         "world_context": "...",
@@ -115,18 +133,171 @@ Return all output in a structured JSON object. Place skill output directly in `a
 }
 ```
 
+**Success (defining-rough-endpoints Pass 2):**
+```json
+{
+  "status": "success",
+  "summary": "Refined milestones with conceived character logic and produced final compass records.",
+  "artifacts": {
+    "pass": 2,
+    "prologue_specification": {
+      "warranted": true,
+      "temporal_relationship": "<how far before Chapter 1>",
+      "pov_or_register": "<whose perspective or what register>",
+      "what_it_establishes": "<what the reader must carry into Ch. 1>",
+      "what_it_withholds": "<what it implies but does not explain>",
+      "relationship_to_milestones": "<whether it is itself a milestone or a precondition>"
+    },
+    "starting_situation": "...",
+    "ending_destination": "...",
+    "milestones": [
+      {
+        "milestone_id": "M1",
+        "description": "...",
+        "character_references": ["char_id_or_name"]
+      }
+    ],
+    "core_conflict_question": "...",
+    "compass_notes": "...",
+    "plot_thread_seeds": [
+      {
+        "node_type": "PlotThread",
+        "properties": {
+          "name": "...",
+          "status": "Active",
+          "originating_chapter": 0
+        }
+      }
+    ],
+    "payoff_seeds": [
+      {
+        "node_type": "Payoff",
+        "properties": {
+          "type": "Foreshadowing",
+          "description": "...",
+          "planted_in_chapter": 0,
+          "resolution_status": "Pending"
+        }
+      }
+    ]
+  }
+}
+```
+
 **Success (worldbuilding):**
 ```json
 {
   "status": "success",
   "summary": "Constructed the political and geographical architecture of the world.",
   "artifacts": {
-    "political_power_map": [],
-    "geography": [],
-    "cultures_customs_religion": [],
-    "history_and_legends": [],
-    "magic_system": {},
-    "location_connections": []
+    "political_power_map": [
+      {
+        "node_type": "Faction",
+        "properties": {
+          "name": "...",
+          "core_values": [],
+          "military_assets": "",
+          "economic_assets": ""
+        },
+        "iceberg_notes": {
+          "current_controller": "",
+          "allegiances": "",
+          "active_enmities": "",
+          "internal_tensions": "",
+          "what_this_power_does_not_know": ""
+        }
+      }
+    ],
+    "geography": [
+      {
+        "node_type": "Location",
+        "properties": {
+          "name": "...",
+          "description": "",
+          "climate": "",
+          "seasonal_weather_state": ""
+        },
+        "iceberg_notes": {
+          "adjacent_locations": "",
+          "what_the_geography_makes_difficult": "",
+          "cultural_meaning": ""
+        }
+      }
+    ],
+    "cultures_customs_religion": [
+      {
+        "node_type": "Culture",
+        "properties": {
+          "name": "...",
+          "core_values": [],
+          "core_fears": [],
+          "key_customs": [],
+          "class_structure": "",
+          "gender_dynamics": "",
+          "religious_beliefs": "",
+          "political_power": "",
+          "languages_dialects": []
+        },
+        "iceberg_notes": {
+          "internal_contradictions": ""
+        }
+      }
+    ],
+    "history_and_legends": [
+      {
+        "node_type": "Event",
+        "properties": {
+          "name": "...",
+          "summary": "",
+          "is_historical": true,
+          "true_account": "",
+          "believed_account": "",
+          "factional_interpretations": {},
+          "physical_remnants": [],
+          "story_significance": "",
+          "referenced_in_chapters": []
+        }
+      }
+    ],
+    "magic_system": {
+      "node_type": "MagicSystem",
+      "properties": {
+        "prevalence": "Stable",
+        "confirmed_capabilities": [],
+        "confirmed_limits": [],
+        "confirmed_costs": [],
+        "unexplained_phenomena": [],
+        "recent_magical_events": []
+      },
+      "iceberg_notes": {
+        "nature_of_magic": "",
+        "known_practitioners": "",
+        "institutional_relationship": ""
+      }
+    },
+    "location_connections": [
+      {
+        "edge_type": "CONNECTED_TO",
+        "from": "location_a",
+        "to": "location_b",
+        "properties": {
+          "distance": "",
+          "travel_times": {
+            "foot": "",
+            "horse": "",
+            "ship": ""
+          }
+        }
+      }
+    ],
+    "kg_context_used": {
+      "targeted_expansion": false,
+      "factions_found": 0,
+      "locations_found": 0,
+      "cultures_found": 0,
+      "magic_systems_found": 0,
+      "historical_events_found": 0
+    }
   }
 }
 ```
@@ -146,6 +317,8 @@ Return all output in a structured JSON object. Place skill output directly in `a
 ## Story State Access
 You have read-only access to the Story State KG via `query_kg_nodes` and `query_kg_edges`.
 - You MUST use `as_of_chapter = chapter_context` in all KG queries to ensure you are reading the state of the world at the correct point in time.
+- Character filters MUST use `logical_id` when targeting specific characters.
+- Edge filters MUST use `from` and `to` field names.
 - Empty query results are expected and should be handled without halting.
 - You may query `Faction`, `Location`, `Culture`, `MagicSystem`, `Event`, `Character`, `PlotThread`, and `Payoff` nodes, as well as `CONNECTED_TO` edges.
 
@@ -154,3 +327,4 @@ You have read-only access to the Story State KG via `query_kg_nodes` and `query_
 - **CRITICAL:** Only execute skills from your own group (Planning). Leave all other skills to their respective subagents.
 - **CRITICAL:** Return only the requested output. Do not produce side effects.
 - **CRITICAL:** All structured output must be placed in the `artifacts` field.
+- **CRITICAL:** Nested required objects in artifacts must never be null (use `{}` or `[]` where needed).

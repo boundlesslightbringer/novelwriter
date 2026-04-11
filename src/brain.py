@@ -10,6 +10,10 @@ from src.config import NovelWriterConfig
 from src.state import BrainDecision, BrainDecisionFallback, OrchestratorState, QualityVerdict
 
 
+def _ensure_dict(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 class BrainNode:
     """The orchestrator brain that makes routing and quality decisions."""
     
@@ -130,8 +134,25 @@ class BrainNode:
             status = result_data.get("status")
             artifacts = result_data.get("artifacts", {})
             
-            if worker in ("story_state_manager", "resolution_subagent"):
-                # Skip quality gate
+            if worker == "story_state_manager" and status == "blocked":
+                # HANDOFF §5.2 / spec: deterministic route to resolution (LLM cannot override).
+                decision.action = "delegate"
+                decision.worker = "resolution_subagent"
+                decision.task = "Analyse KG contradiction blocking persistence"
+                decision.response = None
+                decision.quality_assessment = None
+                inbound = _ensure_dict(latest_result.get("context"))
+                decision.context = {
+                    "mode": "ANALYSE",
+                    "contradiction_record": _ensure_dict(artifacts.get("contradiction_record")),
+                    "blocked_write": {
+                        "write_type": "story_state_manager",
+                        "proposed_context": inbound,
+                    },
+                    "prefetched_docs": [],
+                }
+            elif worker in ("story_state_manager", "resolution_subagent"):
+                # Skip quality gate for other infrastructure outcomes
                 pass
             elif status == "failed":
                 decision.action = "respond"

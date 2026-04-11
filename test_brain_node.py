@@ -113,6 +113,58 @@ def test_iteration_limit(brain_node, initial_state):
     assert "Iteration limit reached" in updates["final_response"]
     assert updates["active_worker"] is None
 
+def test_story_state_manager_blocked_routes_to_resolution(brain_node, initial_state):
+    """Blocked persistence must delegate to resolution_subagent ANALYSE regardless of LLM."""
+    state = initial_state.copy()
+    state["latest_worker_result"] = {
+        "worker": "story_state_manager",
+        "task": "Persist accepted records to story state",
+        "context": {
+            "chapter_context": 4,
+            "nodes_to_update": [
+                {"logical_id": "char_missing", "updated_properties": {"name": "Ghost"}},
+            ],
+        },
+        "result": {
+            "status": "blocked",
+            "summary": "Write blocked due to KG contradictions.",
+            "artifacts": {
+                "operation": "write",
+                "status": "blocked",
+                "contradiction_record": {
+                    "has_contradictions": True,
+                    "contradictions": ["Cannot update node 'char_missing': no active node found."],
+                },
+            },
+        },
+    }
+    wrong = BrainDecision(
+        reasoning="Model mistakenly responds to user instead of resolving.",
+        action="respond",
+        response="Everything is fine.",
+    )
+    mock_llm = MagicMock()
+    mock_chain = MagicMock()
+    mock_llm.with_structured_output.return_value = mock_chain
+    mock_chain.invoke.return_value = wrong
+    brain_node.llm = mock_llm
+    updates = brain_node(state)
+
+    assert updates["active_worker"] == "resolution_subagent"
+    assert updates["final_response"] is None
+    req = updates["worker_request"]
+    assert req["task"] == "Analyse KG contradiction blocking persistence"
+    ctx = req["context"]
+    assert ctx["mode"] == "ANALYSE"
+    assert ctx["contradiction_record"]["has_contradictions"] is True
+    assert "Cannot update node" in ctx["contradiction_record"]["contradictions"][0]
+    bw = ctx["blocked_write"]
+    assert bw["write_type"] == "story_state_manager"
+    assert bw["proposed_context"]["chapter_context"] == 4
+    assert bw["proposed_context"]["nodes_to_update"][0]["logical_id"] == "char_missing"
+    assert ctx["prefetched_docs"] == []
+
+
 def test_nested_model_fallback(brain_node, initial_state):
     """Test that the fallback model is used if the primary model fails."""
     # Mock LLM to raise exception on first invoke, then succeed on fallback
