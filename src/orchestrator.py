@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Mapping
 
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
@@ -24,7 +24,9 @@ def route_from_brain(state: OrchestratorState) -> str:
 
 def respond_node(state: OrchestratorState) -> Dict[str, Any]:
     """Terminal node that formats the final response."""
-    response = state.get("final_response", "No response generated.")
+    response = state.get("final_response")
+    if not isinstance(response, str) or not response.strip():
+        response = "No response generated."
     return {"messages": [AIMessage(content=response)]}
 
 
@@ -67,46 +69,114 @@ def make_stub_worker(name: str) -> Callable[[OrchestratorState, RunnableConfig |
     return stub_worker
 
 
+def _real_worker_classes() -> Dict[str, type]:
+    """Return the canonical worker class mapping used for integration runs."""
+    from src.agents.workers import (
+        CharacterSubagent,
+        ConsequenceSubagent,
+        PlanningSubagent,
+        PlottingSubagent,
+        ResolutionSubagent,
+        StoryStateManager,
+        WritingSubagent,
+    )
+
+    return {
+        "planning_subagent": PlanningSubagent,
+        "character_subagent": CharacterSubagent,
+        "plotting_subagent": PlottingSubagent,
+        "writing_subagent": WritingSubagent,
+        "consequence_subagent": ConsequenceSubagent,
+        "story_state_manager": StoryStateManager,
+        "resolution_subagent": ResolutionSubagent,
+    }
+
+
 class GRRMOrchestrator:
     """The main orchestrator graph for the Novel Writer."""
-    
-    def __init__(self, config: NovelWriterConfig):
+
+    def __init__(
+        self,
+        config: NovelWriterConfig,
+        worker_impls: Mapping[str, Any] | None = None,
+        checkpointer: Any | None = None,
+    ):
         self.config = config
-        
-        # Initialize checkpointer
-        self.mongo_client = MongoClient(self.config.mongodb_uri)
-        self.checkpointer = MongoDBSaver(
-            client=self.mongo_client,
-            db_name=self.config.mongodb_checkpoint_db_name
-        )
-        
+
+        self._worker_impls = dict(worker_impls or {})
         self.workers = list(VALID_WORKERS)
+
+        # Initialize checkpointer (injectable for tests).
+        self.mongo_client = None
+        if checkpointer is None:
+            self.mongo_client = MongoClient(self.config.mongodb_uri)
+            self.checkpointer = MongoDBSaver(
+                client=self.mongo_client,
+                db_name=self.config.mongodb_checkpoint_db_name,
+            )
+        else:
+            self.checkpointer = checkpointer
+
         self.graph = self._build_graph()
+
+    @staticmethod
+    def real_worker_impls() -> Dict[str, type]:
+        """Provide real worker classes for full-stack orchestration tests."""
+        return _real_worker_classes()
+
+    def _resolve_worker_node(
+        self,
+        worker_name: str,
+    ) -> Callable[[OrchestratorState, RunnableConfig | None], Dict[str, Any]]:
+        worker_impl = self._worker_impls.get(worker_name)
+        if worker_impl is None:
+            return make_stub_worker(worker_name)
+
+        if isinstance(worker_impl, type):
+            worker_impl = worker_impl(self.config)
+
+        if hasattr(worker_impl, "invoke") and callable(worker_impl.invoke):
+            def _worker_node(
+                state: OrchestratorState,
+                config: RunnableConfig | None = None,
+            ) -> Dict[str, Any]:
+                from src.bootstrap_trace import append_ssm_worker_trace
+
+                result = worker_impl.invoke(state, config)
+                append_ssm_worker_trace(worker_name, result)
+                return result
+
+            return _worker_node
+
+        if callable(worker_impl):
+            return worker_impl
+
+        raise TypeError(f"Unsupported worker implementation for '{worker_name}': {type(worker_impl)!r}")
 
     def _build_graph(self):
         """Construct and compile the StateGraph."""
         builder = StateGraph(OrchestratorState)
-        
+
         # Add nodes
         builder.add_node("brain", BrainNode(self.config))
         builder.add_node("respond", respond_node)
-        
+
         for worker_name in self.workers:
-            builder.add_node(worker_name, make_stub_worker(worker_name))
-            
+            builder.add_node(worker_name, self._resolve_worker_node(worker_name))
+
         # Add edges
         builder.add_edge(START, "brain")
-        
+
         builder.add_conditional_edges(
             "brain",
             route_from_brain,
-            {worker: worker for worker in self.workers} | {"respond": "respond"}
+            {worker: worker for worker in self.workers} | {"respond": "respond"},
         )
-        
+
         for worker_name in self.workers:
             builder.add_edge(worker_name, "brain")
-            
+
         builder.add_edge("respond", END)
-        
+
         # Compile
         return builder.compile(checkpointer=self.checkpointer)

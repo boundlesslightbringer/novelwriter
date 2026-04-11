@@ -1,10 +1,10 @@
 import operator
-from typing import Annotated, Literal
+from typing import Annotated, Any, Dict, Literal
 from typing_extensions import TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 # Frozenset used by both the brain and the orchestrator router so the valid
@@ -25,6 +25,20 @@ class QualityVerdict(BaseModel):
     reason: str   # internal only; never shown to user
 
 
+WorkerName = Literal[
+    "planning_subagent",
+    "character_subagent",
+    "plotting_subagent",
+    "writing_subagent",
+    "consequence_subagent",
+    "story_state_manager",
+    "resolution_subagent",
+]
+
+
+DecisionAction = Literal["delegate", "respond", "clarify"]
+
+
 class BrainDecision(BaseModel):
     """Structured output schema for the orchestrator brain.
 
@@ -33,23 +47,22 @@ class BrainDecision(BaseModel):
     """
 
     reasoning: str
-    action: Literal["delegate", "respond", "clarify"]
-    worker: (
-        Literal[
-            "planning_subagent",
-            "character_subagent",
-            "plotting_subagent",
-            "writing_subagent",
-            "consequence_subagent",
-            "story_state_manager",
-            "resolution_subagent",
-        ]
-        | None
-    ) = None
+    action: DecisionAction
+    worker: WorkerName | None = None
     task: str | None = None
-    context: dict | None = None
+    context: Dict[str, Any] = Field(default_factory=dict)
     response: str | None = None
     quality_assessment: QualityVerdict | None = None
+
+    @model_validator(mode="after")
+    def normalize_fields(self) -> "BrainDecision":
+        if self.task is not None:
+            self.task = self.task.strip()
+        if self.response is not None:
+            self.response = self.response.strip()
+        if self.context is None:
+            self.context = {}
+        return self
 
 
 class BrainDecisionFallback(BaseModel):
@@ -59,24 +72,25 @@ class BrainDecisionFallback(BaseModel):
     """
 
     reasoning: str
-    action: Literal["delegate", "respond", "clarify"]
-    worker: (
-        Literal[
-            "planning_subagent",
-            "character_subagent",
-            "plotting_subagent",
-            "writing_subagent",
-            "consequence_subagent",
-            "story_state_manager",
-            "resolution_subagent",
-        ]
-        | None
-    ) = None
+    action: DecisionAction
+    worker: WorkerName | None = None
     task: str | None = None
-    context: dict | None = None
+    context: Dict[str, Any] = Field(default_factory=dict)
     response: str | None = None
     quality_verdict: Literal["accept", "reject", "needs_clarification"] | None = None
     quality_reason: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_fields(self) -> "BrainDecisionFallback":
+        if self.task is not None:
+            self.task = self.task.strip()
+        if self.response is not None:
+            self.response = self.response.strip()
+        if self.quality_reason is not None:
+            self.quality_reason = self.quality_reason.strip()
+        if self.context is None:
+            self.context = {}
+        return self
 
 
 class OrchestratorState(TypedDict):
@@ -99,3 +113,5 @@ class OrchestratorState(TypedDict):
     worker_request: dict | None          # {task, context, reasoning}
     latest_worker_result: dict | None    # what the most recent worker returned
     worker_history: Annotated[list[dict], operator.add]  # full audit trail
+    mvp_mode: bool
+    mvp_requirements: dict | None        # {genre, themes, chapter_context, max_major_characters, target_scene_pages}

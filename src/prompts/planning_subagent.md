@@ -57,6 +57,8 @@ When receiving a request from the brain:
 
 Return all output in a structured JSON object. Place skill output directly in `artifacts`. Do not nest the output under the skill name unless explicitly required by a chained skill scenario. For single skill invocations, the output must be flat as per the skill spec.
 
+**Persistence boundary:** Creative workers do **not** write to the KG. Do **not** include `nodes_to_add`, `nodes_to_update`, `edges_to_add`, or `edges_to_update` in `artifacts` (the brain builds write payloads from skill-shaped fields only). Invented node types such as `StorySeed` are invalid and will be rejected at persistence.
+
 **Success (finding-a-seed):**
 
 `validation_record` is required and must never be null. It must contain exactly four keys: concreteness, generative_tension, emotional_necessity, open_architecture. Each value is a string starting with PASS or FAIL followed by a one-sentence explanation. Omitting or nulling this field is a schema violation.

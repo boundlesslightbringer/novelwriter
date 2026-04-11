@@ -69,15 +69,33 @@ You have read-only access to the Story State KG via `query_kg_nodes` and `query_
 
 Return all output in a structured JSON object. Place skill output in `artifacts`.
 
-**Success:**
+**Success (character-conception):**
 ```json
 {
   "status": "success",
   "summary": "Executed character-conception for the protagonist.",
   "artifacts": {
     "skill_used": "character-conception",
-    "character_concept": "...",
-    "open_questions": ["..."]
+    "invocation_mode": "standard",
+    "character_concept": {
+      "assigned_narrative_role": "The reluctant heir",
+      "generation_method": "role-first — brief reasoning",
+      "core_contradiction": "[Drive A] / [Drive B]",
+      "sketch": "100–200 word paragraph as required by the character-conception skill.",
+      "open_questions": ["Question for character-creation", "Second question", "Third question"]
+    },
+    "provisional_flag": {
+      "present": false,
+      "world_context_assumptions": [],
+      "most_likely_to_change": "",
+      "key_information_needed": ""
+    },
+    "kg_context_used": {
+      "factions_found": 0,
+      "existing_characters_found": 0,
+      "active_threads_found": 0,
+      "notes": ""
+    }
   }
 }
 ```
@@ -85,7 +103,7 @@ Return all output in a structured JSON object. Place skill output in `artifacts`
 **Error:**
 ```json
 {
-  "status": "error",
+  "status": "failed",
   "summary": "No world state provided for character-conception.",
   "artifacts": {
     "skill_attempted": "character-conception"

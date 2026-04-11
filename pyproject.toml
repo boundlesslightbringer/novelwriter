@@ -40,4 +40,5 @@ dev = [
 [tool.pytest.ini_options]
 markers = [
     "integration: tests that call external services (Vertex/Gemini, MongoDB)",
+    "e2e: full-stack end-to-end orchestrator tests",
 ]

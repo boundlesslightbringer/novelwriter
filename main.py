@@ -43,6 +43,8 @@ def main() -> None:
                 "final_response": None,
                 "active_worker": None,
                 "worker_request": None,
+                "latest_worker_result": None,
+                "worker_history": [],
             }
             
             for event_type, event_data in orchestrator.graph.stream(

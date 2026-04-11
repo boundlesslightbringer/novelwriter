@@ -1,3 +1,4 @@
+import re
 from typing import Any, Dict, List, Literal
 
 from langchain_core.runnables import RunnableConfig
@@ -77,11 +78,155 @@ def _extract_chapter(context: Dict[str, Any]) -> int:
     return _to_int(chapter_value, default=0)
 
 
-def _normalize_add_node(record: Dict[str, Any], chapter: int) -> Dict[str, Any]:
+def _slugify(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+    return text.strip("_")
+
+
+def _make_logical_id(prefix: str, props: Dict[str, Any], fallback_index: int) -> str:
+    for key in ("logical_id", "name", "title", "description", "seed"):
+        slug = _slugify(props.get(key))
+        if slug:
+            return f"{prefix}_{slug[:40]}"
+    return f"{prefix}_{fallback_index}"
+
+
+def _coerce_node_record(
+    raw: Dict[str, Any],
+    fallback_type: str,
+    logical_prefix: str,
+    chapter: int,
+    fallback_index: int,
+) -> Dict[str, Any]:
+    properties = _ensure_dict(raw.get("properties"))
+    node_type = str(raw.get("node_type") or raw.get("type") or fallback_type or "").strip()
+    logical_id = str(raw.get("logical_id") or "").strip()
+    if not logical_id:
+        logical_id = _make_logical_id(logical_prefix, properties, fallback_index)
     return {
-        "logical_id": str(record.get("logical_id") or ""),
-        "node_type": str(record.get("node_type") or record.get("type") or ""),
-        "properties": _ensure_dict(record.get("properties")),
+        "logical_id": logical_id,
+        "node_type": node_type,
+        "properties": properties,
+        "chapter": _to_int(raw.get("chapter"), default=chapter),
+    }
+
+
+def _coerce_edge_record(
+    raw: Dict[str, Any],
+    fallback_type: str,
+    logical_prefix: str,
+    chapter: int,
+    fallback_index: int,
+) -> Dict[str, Any]:
+    properties = _ensure_dict(raw.get("properties"))
+    edge_type = str(raw.get("edge_type") or raw.get("type") or fallback_type or "").strip()
+    from_node = str(raw.get("from_node") or raw.get("from") or "").strip()
+    to_node = str(raw.get("to_node") or raw.get("to") or "").strip()
+    logical_id = str(raw.get("logical_id") or "").strip()
+    if not logical_id:
+        logical_id = _make_logical_id(
+            logical_prefix,
+            {"name": f"{from_node}_{to_node}", "description": properties.get("description", "")},
+            fallback_index,
+        )
+    return {
+        "logical_id": logical_id,
+        "edge_type": edge_type,
+        "from_node": from_node,
+        "to_node": to_node,
+        "properties": properties,
+        "chapter": _to_int(raw.get("chapter"), default=chapter),
+    }
+
+
+def _derive_write_payload_from_artifacts(
+    context: Dict[str, Any], chapter: int
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    artifacts = _ensure_dict(context.get("artifacts"))
+    nodes_to_add: List[Dict[str, Any]] = []
+    nodes_to_update: List[Dict[str, Any]] = []
+    edges_to_add: List[Dict[str, Any]] = []
+    edges_to_update: List[Dict[str, Any]] = []
+
+    node_specs = [
+        ("plot_thread_seeds", "PlotThread", "thread"),
+        ("payoff_seeds", "Payoff", "payoff"),
+        ("political_power_map", "Faction", "faction"),
+        ("geography", "Location", "location"),
+        ("cultures_customs_religion", "Culture", "culture"),
+        ("history_and_legends", "Event", "event"),
+    ]
+    edge_specs = [
+        ("location_connections", "CONNECTED_TO", "conn"),
+        ("new_relationship_edges", "RELATIONSHIP", "rel"),
+    ]
+
+    idx = 1
+    for key, fallback_type, prefix in node_specs:
+        for record in _ensure_list(artifacts.get(key)):
+            if isinstance(record, dict):
+                nodes_to_add.append(
+                    _coerce_node_record(record, fallback_type, prefix, chapter, idx)
+                )
+                idx += 1
+
+    magic_system = artifacts.get("magic_system")
+    if isinstance(magic_system, dict):
+        nodes_to_add.append(
+            _coerce_node_record(magic_system, "MagicSystem", "magic", chapter, idx)
+        )
+        idx += 1
+
+    # Seed bootstrap fallback: convert validated seed into a persisted PlotThread seed.
+    seed_document = artifacts.get("seed_document")
+    if isinstance(seed_document, dict):
+        seed_text = str(seed_document.get("seed") or "bootstrap_seed").strip()
+        seed_props = {
+            "name": seed_text[:120],
+            "status": "Seed",
+            "originating_chapter": chapter,
+            "seed_document": seed_document,
+        }
+        nodes_to_add.append(
+            {
+                "logical_id": _make_logical_id("thread_seed", {"seed": seed_text}, idx),
+                "node_type": "PlotThread",
+                "properties": seed_props,
+                "chapter": chapter,
+            }
+        )
+        idx += 1
+
+    edge_idx = 1
+    for key, fallback_type, prefix in edge_specs:
+        for record in _ensure_list(artifacts.get(key)):
+            if isinstance(record, dict):
+                edges_to_add.append(
+                    _coerce_edge_record(record, fallback_type, prefix, chapter, edge_idx)
+                )
+                edge_idx += 1
+
+    for record in _ensure_list(artifacts.get("updated_relationship_edges")):
+        if isinstance(record, dict):
+            edges_to_update.append(_normalize_update_edge(record, chapter))
+
+    return nodes_to_add, nodes_to_update, edges_to_add, edges_to_update
+
+
+def _normalize_add_node(record: Dict[str, Any], chapter: int) -> Dict[str, Any]:
+    node_type = str(record.get("node_type") or record.get("type") or "").strip()
+    properties = _ensure_dict(record.get("properties"))
+    logical_id = str(record.get("logical_id") or "").strip()
+    if not logical_id:
+        prefix = _slugify(node_type) or "node"
+        logical_id = _make_logical_id(prefix, properties, chapter)
+    return {
+        "logical_id": logical_id,
+        "node_type": node_type,
+        "properties": properties,
         "chapter": _to_int(record.get("chapter"), default=chapter),
     }
 
@@ -100,9 +245,18 @@ def _normalize_update_node(record: Dict[str, Any], chapter: int) -> Dict[str, An
 def _normalize_add_edge(record: Dict[str, Any], chapter: int) -> Dict[str, Any]:
     from_node = str(record.get("from_node") or record.get("from") or "")
     to_node = str(record.get("to_node") or record.get("to") or "")
+    edge_type = str(record.get("edge_type") or record.get("type") or "").strip()
+    logical_id = str(record.get("logical_id") or "").strip()
+    if not logical_id:
+        prefix = _slugify(edge_type) or "edge"
+        logical_id = _make_logical_id(
+            prefix,
+            {"name": f"{from_node}_{to_node}", "description": _ensure_dict(record.get("properties")).get("description", "")},
+            chapter,
+        )
     return {
-        "logical_id": str(record.get("logical_id") or ""),
-        "edge_type": str(record.get("edge_type") or record.get("type") or ""),
+        "logical_id": logical_id,
+        "edge_type": edge_type,
         "from_node": from_node,
         "to_node": to_node,
         "properties": _ensure_dict(record.get("properties")),
@@ -164,18 +318,29 @@ def _build_story_state_subgraph() -> Any:
     def validate_payload(state: StoryStatePersistState) -> StoryStatePersistState:
         context = _ensure_dict(state.get("context"))
         chapter = _extract_chapter(context)
+        if chapter <= 0:
+            chapter = 1
         nodes_to_add = _extract_context_lists(context, "nodes_to_add")
         nodes_to_update = _extract_context_lists(context, "nodes_to_update")
         edges_to_add = _extract_context_lists_any(context, ["edges_to_add", "new_relationship_edges"])
         edges_to_update = _extract_context_lists_any(context, ["edges_to_update", "updated_relationship_edges"])
+
+        if not any([nodes_to_add, nodes_to_update, edges_to_add, edges_to_update]):
+            (
+                derived_nodes_to_add,
+                derived_nodes_to_update,
+                derived_edges_to_add,
+                derived_edges_to_update,
+            ) = _derive_write_payload_from_artifacts(context, chapter)
+            nodes_to_add = derived_nodes_to_add
+            nodes_to_update = derived_nodes_to_update
+            edges_to_add = derived_edges_to_add
+            edges_to_update = derived_edges_to_update
         is_batch = bool(context.get("batch_mode")) or (
             len(nodes_to_add) + len(nodes_to_update) + len(edges_to_add) + len(edges_to_update) > 1
         )
 
         errors: List[str] = []
-        if chapter <= 0:
-            errors.append("Missing or invalid chapter context for persistence.")
-
         if not any([nodes_to_add, nodes_to_update, edges_to_add, edges_to_update]):
             errors.append("No write records provided. Expected at least one write list in context.")
 
