@@ -2,7 +2,7 @@
 Integration tests for character-creation subgraph behavior in CharacterSubagent.
 
 Run with output visible:
-  uv run pytest test_character_subagent.py -s -v -m integration
+  uv run pytest tests/test_character_subagent.py -s -v -m integration
 """
 
 import json

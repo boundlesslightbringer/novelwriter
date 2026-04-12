@@ -8,7 +8,7 @@ class LLMConfig(BaseModel):
     """Configuration for an LLM model."""
     model_name: str = Field(default="gemini-3-flash-preview")
     model_provider: str = Field(default="google_genai")
-    temperature: float = Field(default=0.5)
+    temperature: float = Field(default=1.0)
     top_p: Optional[float] = Field(default=0.95)
     top_k: Optional[int] = Field(default=None)
     seed: Optional[int] = Field(default=None)
@@ -22,7 +22,7 @@ class NovelWriterConfig(BaseSettings):
     
     # Per-agent overrides (e.g., {"writing_subagent": LLMConfig(temperature=0.9)})
     agent_llm_overrides: Dict[str, LLMConfig] = {
-    "brain": LLMConfig(model_name="gemini-3-flash-preview", temperature=0)
+    "brain": LLMConfig(model_name="gemini-3.1-pro-preview", temperature=1.0)
 }
     
     # Orchestrator settings

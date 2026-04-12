@@ -48,7 +48,7 @@ RELATIONSHIP edges.
 
 ### Phase 5a — Planning and plotting workers ✓ (plotting verified last)
 `planning_subagent` passes with correct `seed_document` artifact structure including
-populated `validation_record`. `plotting_subagent` passes `test_plotting_subagent.py`
+populated `validation_record`. `plotting_subagent` passes `tests/test_plotting_subagent.py`
 with non-null `obstacle`, `the_choice`, `character_logic_audit`, and non-zero KG
 context counts.
 
@@ -402,8 +402,8 @@ are already implemented and tested, and including them wastes context.
 ### Reference tests (show pattern, do not modify)
 | File | Why |
 |---|---|
-| `test_character_integration_chain.py` | Phase 4 test pattern — use as template |
-| `test_plotting_subagent.py` | Phase 5a verified test — shows KG fixture pattern |
+| `tests/test_character_integration_chain.py` | Phase 4 test pattern — use as template |
+| `tests/test_plotting_subagent.py` | Phase 5a verified test — shows KG fixture pattern |
 
 ### Do not attach
 - `src/prompts/planning_subagent.md` — implemented and passing

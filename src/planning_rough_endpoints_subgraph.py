@@ -58,14 +58,22 @@ class KgNodeSeed(BaseModel):
     properties: Dict[str, Any] = Field(default_factory=dict)
 
 
-class Pass2Output(BaseModel):
+class Pass2CompassOutput(BaseModel):
+    """Pass 2 compass and milestones only (no KG seeds)."""
+
     prologue_specification: PrologueSpecification = Field(default_factory=PrologueSpecification)
     starting_situation: str = ""
     ending_destination: str = ""
     milestones: List[FinalMilestone] = Field(default_factory=list)
     core_conflict_question: str = ""
     compass_notes: str = ""
+
+
+class Pass2PlotSeedsOutput(BaseModel):
     plot_thread_seeds: List[KgNodeSeed] = Field(default_factory=list)
+
+
+class Pass2PayoffSeedsOutput(BaseModel):
     payoff_seeds: List[KgNodeSeed] = Field(default_factory=list)
 
 
@@ -83,6 +91,9 @@ class RoughEndpointsState(TypedDict, total=False):
     warnings: List[str]
     pass_1_artifacts: Dict[str, Any]
     pass_2_artifacts: Dict[str, Any]
+    pass_2_compass: Dict[str, Any]
+    pass_2_plot_thread_seeds: List[Dict[str, Any]]
+    pass_2_payoff_seeds: List[Dict[str, Any]]
     summary: str
 
 
@@ -102,6 +113,95 @@ def _normalize_string_list(values: Any) -> List[str]:
         if text:
             normalized.append(text)
     return normalized
+
+
+def _assemble_pass2_artifacts(
+    pass_2_compass: Dict[str, Any] | None,
+    plot_thread_seeds: List[Dict[str, Any]] | None,
+    payoff_seeds: List[Dict[str, Any]] | None,
+) -> tuple[Dict[str, Any], List[str]]:
+    """Merge compass and seed lists into final pass_2_artifacts; apply normalization and fallbacks."""
+    warnings: List[str] = []
+    comp = dict(pass_2_compass) if pass_2_compass else {}
+    if not comp:
+        warnings.append("pass_2_assemble: missing pass_2_compass; assembled with empty compass defaults.")
+
+    raw_milestones = comp.get("milestones")
+    if not isinstance(raw_milestones, list):
+        raw_milestones = []
+    normalized_milestones: List[Dict[str, Any]] = []
+    for index, milestone in enumerate(raw_milestones, start=1):
+        if isinstance(milestone, dict):
+            milestone_id = str(milestone.get("milestone_id", "")).strip() or f"M{index}"
+            description = str(milestone.get("description", "")).strip()
+            character_references = _normalize_string_list(milestone.get("character_references"))
+        else:
+            milestone_id = getattr(milestone, "milestone_id", "") or f"M{index}"
+            milestone_id = str(milestone_id).strip() or f"M{index}"
+            description = str(getattr(milestone, "description", "")).strip()
+            character_references = _normalize_string_list(getattr(milestone, "character_references", []))
+        normalized_milestones.append(
+            {
+                "milestone_id": milestone_id,
+                "description": description,
+                "character_references": character_references,
+            }
+        )
+    if not normalized_milestones:
+        warnings.append("pass_2_assemble: no milestones after normalization; inserted placeholder milestone.")
+        normalized_milestones = [
+            {
+                "milestone_id": "M1",
+                "description": "Placeholder refined milestone awaiting character detail.",
+                "character_references": [],
+            }
+        ]
+
+    plot_list = [dict(s) for s in plot_thread_seeds] if plot_thread_seeds else []
+    payoff_list = [dict(s) for s in payoff_seeds] if payoff_seeds else []
+
+    if not plot_list:
+        warnings.append("pass_2_assemble: empty plot_thread_seeds; inserted fallback PlotThread seed.")
+        plot_list = [
+            {
+                "node_type": "PlotThread",
+                "properties": {
+                    "name": normalized_milestones[0]["description"] or "Initial plot thread",
+                    "status": "Active",
+                    "originating_chapter": 0,
+                },
+            }
+        ]
+    if not payoff_list:
+        warnings.append("pass_2_assemble: empty payoff_seeds; inserted fallback Payoff seed.")
+        payoff_list = [
+            {
+                "node_type": "Payoff",
+                "properties": {
+                    "type": "Foreshadowing",
+                    "description": "Initial payoff seed from refined milestones.",
+                    "planted_in_chapter": 0,
+                    "resolution_status": "Pending",
+                },
+            }
+        ]
+
+    prologue = comp.get("prologue_specification")
+    if not isinstance(prologue, dict):
+        prologue = PrologueSpecification().model_dump()
+
+    artifacts: Dict[str, Any] = {
+        "pass": 2,
+        "prologue_specification": prologue,
+        "starting_situation": str(comp.get("starting_situation", "")).strip(),
+        "ending_destination": str(comp.get("ending_destination", "")).strip(),
+        "milestones": normalized_milestones,
+        "core_conflict_question": str(comp.get("core_conflict_question", "")).strip(),
+        "compass_notes": str(comp.get("compass_notes", "")).strip(),
+        "plot_thread_seeds": plot_list,
+        "payoff_seeds": payoff_list,
+    }
+    return artifacts, warnings
 
 
 def _build_llm(subagent: Any) -> ChatGoogleGenerativeAI:
@@ -125,7 +225,9 @@ def _build_subgraph(subagent: Any) -> Any:
         {"skill_name": "defining-rough-endpoints", "load_type": "full"}
     )
     pass1_llm = llm.with_structured_output(Pass1Output)
-    pass2_llm = llm.with_structured_output(Pass2Output)
+    pass2_compass_llm = llm.with_structured_output(Pass2CompassOutput)
+    pass2_plot_llm = llm.with_structured_output(Pass2PlotSeedsOutput)
+    pass2_payoff_llm = llm.with_structured_output(Pass2PayoffSeedsOutput)
     graph = StateGraph(RoughEndpointsState)
 
     def ingest_context(state: RoughEndpointsState) -> RoughEndpointsState:
@@ -301,8 +403,8 @@ def _build_subgraph(subagent: Any) -> Any:
             }
         }
 
-    def run_pass_2(state: RoughEndpointsState) -> RoughEndpointsState:
-        if state.get("terminal_status") or state.get("run_pass") != 2:
+    def pass2_refine_compass(state: RoughEndpointsState) -> RoughEndpointsState:
+        if state.get("terminal_status") or int(state.get("run_pass", 0)) != 2:
             return {}
         context = state.get("context", {})
         prompt_payload = {
@@ -313,73 +415,78 @@ def _build_subgraph(subagent: Any) -> Any:
         }
         prompt = (
             f"{state.get('skill_content', '')}\n\n"
-            "Generate Pass 2 output only. Return strict structured JSON with non-null nested fields.\n"
-            "Include KG-ready plot_thread_seeds and payoff_seeds.\n\n"
+            "Pass 2 — step 1 of 3 (compass only). Return strict structured JSON with non-null nested fields.\n"
+            "Refine prologue_specification, starting_situation, ending_destination, milestones "
+            "(with character_references tied to character concepts), core_conflict_question, and compass_notes.\n"
+            "Do NOT output plot_thread_seeds or payoff_seeds in this step; a later step will add KG seeds.\n\n"
             f"{_safe_json(prompt_payload)}"
         )
-        pass_2_output: Pass2Output = pass2_llm.invoke([HumanMessage(content=prompt)])
+        compass: Pass2CompassOutput = pass2_compass_llm.invoke([HumanMessage(content=prompt)])
+        return {"pass_2_compass": compass.model_dump()}
 
-        milestones = pass_2_output.milestones or []
-        normalized_milestones: List[Dict[str, Any]] = []
-        for index, milestone in enumerate(milestones, start=1):
-            milestone_id = milestone.milestone_id.strip() or f"M{index}"
-            normalized_milestones.append(
-                {
-                    "milestone_id": milestone_id,
-                    "description": milestone.description.strip(),
-                    "character_references": _normalize_string_list(
-                        milestone.character_references
-                    ),
-                }
-            )
-        if not normalized_milestones:
-            normalized_milestones = [
-                {
-                    "milestone_id": "M1",
-                    "description": "Placeholder refined milestone awaiting character detail.",
-                    "character_references": [],
-                }
-            ]
-
-        plot_thread_seeds = [seed.model_dump() for seed in pass_2_output.plot_thread_seeds]
-        payoff_seeds = [seed.model_dump() for seed in pass_2_output.payoff_seeds]
-        if not plot_thread_seeds:
-            plot_thread_seeds = [
-                {
-                    "node_type": "PlotThread",
-                    "properties": {
-                        "name": normalized_milestones[0]["description"] or "Initial plot thread",
-                        "status": "Active",
-                        "originating_chapter": 0,
-                    },
-                }
-            ]
-        if not payoff_seeds:
-            payoff_seeds = [
-                {
-                    "node_type": "Payoff",
-                    "properties": {
-                        "type": "Foreshadowing",
-                        "description": "Initial payoff seed from refined milestones.",
-                        "planted_in_chapter": 0,
-                        "resolution_status": "Pending",
-                    },
-                }
-            ]
-
-        return {
-            "pass_2_artifacts": {
-                "pass": 2,
-                "prologue_specification": pass_2_output.prologue_specification.model_dump(),
-                "starting_situation": pass_2_output.starting_situation.strip(),
-                "ending_destination": pass_2_output.ending_destination.strip(),
-                "milestones": normalized_milestones,
-                "core_conflict_question": pass_2_output.core_conflict_question.strip(),
-                "compass_notes": pass_2_output.compass_notes.strip(),
-                "plot_thread_seeds": plot_thread_seeds,
-                "payoff_seeds": payoff_seeds,
-            }
+    def pass2_plot_thread_seeds(state: RoughEndpointsState) -> RoughEndpointsState:
+        if state.get("terminal_status") or int(state.get("run_pass", 0)) != 2:
+            return {}
+        context = state.get("context", {})
+        prompt_payload = {
+            "mode": "pass_2_plot_seeds",
+            "pass_2_compass": state.get("pass_2_compass", {}),
+            "character_concepts": context.get("character_concepts", []),
+            "pass_1_output": context.get("pass_1_output", {}),
         }
+        prompt = (
+            f"{state.get('skill_content', '')}\n\n"
+            "Pass 2 — step 2 of 3 (plot thread seeds only). Return strict structured JSON.\n"
+            "Emit KG-ready plot_thread_seeds only: list of objects with node_type \"PlotThread\" and "
+            "properties including name, status, originating_chapter as appropriate.\n"
+            "Align seeds with the refined compass and milestones in pass_2_compass.\n\n"
+            f"{_safe_json(prompt_payload)}"
+        )
+        seeds_out: Pass2PlotSeedsOutput = pass2_plot_llm.invoke([HumanMessage(content=prompt)])
+        return {
+            "pass_2_plot_thread_seeds": [s.model_dump() for s in (seeds_out.plot_thread_seeds or [])]
+        }
+
+    def pass2_payoff_seeds(state: RoughEndpointsState) -> RoughEndpointsState:
+        if state.get("terminal_status") or int(state.get("run_pass", 0)) != 2:
+            return {}
+        context = state.get("context", {})
+        compass = state.get("pass_2_compass", {}) or {}
+        prompt_payload = {
+            "mode": "pass_2_payoff_seeds",
+            "pass_2_compass": compass,
+            "plot_thread_seeds_preview": state.get("pass_2_plot_thread_seeds", []),
+            "character_concepts": context.get("character_concepts", []),
+        }
+        prompt = (
+            f"{state.get('skill_content', '')}\n\n"
+            "Pass 2 — step 3 of 3 (payoff seeds only). Return strict structured JSON.\n"
+            "Emit KG-ready payoff_seeds only: list of objects with node_type \"Payoff\" and properties "
+            "(type, description, planted_in_chapter, resolution_status, etc.) tied to milestones and threads.\n\n"
+            f"{_safe_json(prompt_payload)}"
+        )
+        payoff_out: Pass2PayoffSeedsOutput = pass2_payoff_llm.invoke([HumanMessage(content=prompt)])
+        return {"pass_2_payoff_seeds": [s.model_dump() for s in (payoff_out.payoff_seeds or [])]}
+
+    def pass2_assemble_artifacts(state: RoughEndpointsState) -> RoughEndpointsState:
+        if state.get("terminal_status") or int(state.get("run_pass", 0)) != 2:
+            return {}
+        pass_2_compass = state.get("pass_2_compass")
+        if not isinstance(pass_2_compass, dict):
+            pass_2_compass = {}
+        plot_raw = state.get("pass_2_plot_thread_seeds")
+        if not isinstance(plot_raw, list):
+            plot_raw = []
+        plot_seeds = [s for s in plot_raw if isinstance(s, dict)]
+        payoff_raw = state.get("pass_2_payoff_seeds")
+        if not isinstance(payoff_raw, list):
+            payoff_raw = []
+        payoff_seeds = [s for s in payoff_raw if isinstance(s, dict)]
+
+        artifacts, assembly_warnings = _assemble_pass2_artifacts(pass_2_compass, plot_seeds, payoff_seeds)
+        warnings = list(state.get("warnings", []))
+        warnings.extend(assembly_warnings)
+        return {"pass_2_artifacts": artifacts, "warnings": warnings}
 
     def package_response(state: RoughEndpointsState) -> RoughEndpointsState:
         if state.get("terminal_status"):
@@ -403,7 +510,10 @@ def _build_subgraph(subagent: Any) -> Any:
     graph.add_node("ingest_context", ingest_context)
     graph.add_node("fetch_reassess_context", fetch_reassess_context)
     graph.add_node("run_pass_1", run_pass_1)
-    graph.add_node("run_pass_2", run_pass_2)
+    graph.add_node("pass2_refine_compass", pass2_refine_compass)
+    graph.add_node("pass2_plot_thread_seeds", pass2_plot_thread_seeds)
+    graph.add_node("pass2_payoff_seeds", pass2_payoff_seeds)
+    graph.add_node("pass2_assemble_artifacts", pass2_assemble_artifacts)
     graph.add_node("package_response", package_response)
     graph.add_node("package_need_input", package_need_input)
 
@@ -427,9 +537,9 @@ def _build_subgraph(subagent: Any) -> Any:
 
     def route_after_reassess(
         state: RoughEndpointsState,
-    ) -> Literal["run_pass_1", "run_pass_2"]:
+    ) -> Literal["run_pass_1", "pass2_refine_compass"]:
         if int(state.get("run_pass", 1)) == 2:
-            return "run_pass_2"
+            return "pass2_refine_compass"
         return "run_pass_1"
 
     graph.add_conditional_edges(
@@ -437,12 +547,15 @@ def _build_subgraph(subagent: Any) -> Any:
         route_after_reassess,
         {
             "run_pass_1": "run_pass_1",
-            "run_pass_2": "run_pass_2",
+            "pass2_refine_compass": "pass2_refine_compass",
         },
     )
 
     graph.add_edge("run_pass_1", "package_response")
-    graph.add_edge("run_pass_2", "package_response")
+    graph.add_edge("pass2_refine_compass", "pass2_plot_thread_seeds")
+    graph.add_edge("pass2_plot_thread_seeds", "pass2_payoff_seeds")
+    graph.add_edge("pass2_payoff_seeds", "pass2_assemble_artifacts")
+    graph.add_edge("pass2_assemble_artifacts", "package_response")
     graph.add_edge("package_response", END)
     graph.add_edge("package_need_input", END)
     return graph.compile()

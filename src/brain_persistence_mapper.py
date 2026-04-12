@@ -29,6 +29,38 @@ ALLOWED_KG_NODE_TYPES: frozenset[str] = frozenset(
     }
 )
 
+ALLOWED_KG_EDGE_TYPES: frozenset[str] = frozenset(
+    {
+        "KNOWS",
+        "RELATIONSHIP",
+        "LOCATED_AT",
+        "CAUSES",
+        "CONTROLS",
+        "INVOLVES",
+        "PAYS_OFF_IN",
+        "ALLIED_WITH",
+        "AT_WAR_WITH",
+        "CONNECTED_TO",
+        "BELONGS_TO_CULTURE",
+        "DEPENDS_ON",
+        "DESCRIBES",
+        "INFORMED",
+        "CONFLICTS_WITH",
+    }
+)
+
+NODE_META_KEYS: frozenset[str] = frozenset(
+    {
+        "logical_id",
+        "node_type",
+        "type",
+        "properties",
+        "chapter",
+        "valid_from",
+        "valid_to",
+    }
+)
+
 
 def _ensure_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -78,6 +110,23 @@ class PersistPayloadMapperResult:
 class PersistPayloadMapper:
     """Build write-ready persistence payloads from creative worker artifacts."""
 
+    def _extract_node_properties(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        properties = _ensure_dict(record.get("properties"))
+        if properties:
+            return properties
+        synthesized = {key: value for key, value in record.items() if key not in NODE_META_KEYS}
+        return _ensure_dict(synthesized)
+
+    def _fallback_node_properties(self, node_type: str, logical_id: str) -> Dict[str, Any]:
+        clean_id = str(logical_id or "").strip()
+        if node_type == "KnowledgeItem":
+            return {"description": clean_id or "knowledge item"}
+        if node_type == "Character":
+            return {"name": clean_id or "character"}
+        if node_type in {"PlotThread", "Payoff"}:
+            return {"name": clean_id or node_type.lower(), "status": "Seed"}
+        return {"name": clean_id or node_type.lower() or "node"}
+
     def _append_if_dict(self, target: List[Dict[str, Any]], value: Any) -> None:
         if isinstance(value, dict):
             target.append(value)
@@ -99,7 +148,7 @@ class PersistPayloadMapper:
             node_type = fb_type
         else:
             return None
-        properties = _ensure_dict(record.get("properties"))
+        properties = self._extract_node_properties(record)
         logical_id = str(record.get("logical_id") or "").strip()
         if not logical_id:
             logical_id = _make_logical_id(
@@ -107,6 +156,8 @@ class PersistPayloadMapper:
                 properties.get("name") or properties.get("title") or properties.get("seed"),
                 fallback_index,
             )
+        if not properties:
+            properties = self._fallback_node_properties(node_type, logical_id)
         return {
             "logical_id": logical_id,
             "node_type": node_type,
@@ -126,7 +177,7 @@ class PersistPayloadMapper:
         edge_type = str(record.get("edge_type") or record.get("type") or fallback_type).strip()
         from_node = str(record.get("from") or record.get("from_node") or "").strip()
         to_node = str(record.get("to") or record.get("to_node") or "").strip()
-        if not edge_type or not from_node or not to_node:
+        if not edge_type or edge_type not in ALLOWED_KG_EDGE_TYPES or not from_node or not to_node:
             return None
         logical_id = str(record.get("logical_id") or "").strip()
         if not logical_id:

@@ -6,7 +6,7 @@ Requires working Application Default Credentials and Vertex AI permission
 If you see ``403 PERMISSION_DENIED``, fix IAM / project / model availability.
 
 Run with output visible:
-  uv run pytest test_character_integration_chain.py -s -v -m integration
+  uv run pytest tests/test_character_integration_chain.py -s -v -m integration
 """
 
 import json

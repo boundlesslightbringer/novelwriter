@@ -142,3 +142,100 @@ def test_mapper_builds_voice_profile_update():
     assert mapped.context["nodes_to_update"][0]["updated_properties"]["voice_profile"]["vocabulary_range"][
         "lexical_register"
     ] == "lean"
+
+
+def test_mapper_synthesizes_flat_node_fields_into_properties():
+    mapper = PersistPayloadMapper()
+    latest_worker_result = {
+        "worker": "planning_subagent",
+        "task": "Return flat fallback records",
+        "context": {"chapter_context": 2},
+        "result": {
+            "status": "success",
+            "summary": "Flat records generated.",
+            "artifacts": {
+                "plot_thread_seeds": [
+                    {
+                        "logical_id": "thread_flat_payload",
+                        "node_type": "PlotThread",
+                        "name": "A debt sworn in blood",
+                        "status": "Active",
+                        "originating_chapter": 2,
+                    }
+                ]
+            },
+        },
+    }
+
+    mapped = mapper.build_context(latest_worker_result)
+
+    assert mapped.has_payload is True
+    nodes = mapped.context["nodes_to_add"]
+    assert len(nodes) == 1
+    assert nodes[0]["logical_id"] == "thread_flat_payload"
+    assert nodes[0]["properties"]["name"] == "A debt sworn in blood"
+    assert nodes[0]["properties"]["status"] == "Active"
+    assert nodes[0]["properties"]["originating_chapter"] == 2
+
+
+def test_mapper_rejects_unsupported_edge_type():
+    mapper = PersistPayloadMapper()
+    latest_worker_result = {
+        "worker": "character_subagent",
+        "task": "Return unsupported edge type",
+        "context": {"chapter_context": 3},
+        "result": {
+            "status": "success",
+            "summary": "Returned relationship records.",
+            "artifacts": {
+                "new_relationship_edges": [
+                    {
+                        "logical_id": "edge_bad_member_of",
+                        "edge_type": "MEMBER_OF",
+                        "from": "char_a",
+                        "to": "faction_b",
+                        "properties": {"confidence": "high"},
+                    }
+                ]
+            },
+        },
+    }
+
+    mapped = mapper.build_context(latest_worker_result)
+
+    assert mapped.context.get("edges_to_add", []) == []
+    assert any("Skipped malformed edge add record" in err for err in mapped.errors)
+
+
+def test_mapper_backfills_minimal_properties_for_empty_explicit_nodes():
+    mapper = PersistPayloadMapper()
+    latest_worker_result = {
+        "worker": "character_subagent",
+        "task": "Return sparse explicit node list",
+        "context": {"chapter_context": 4},
+        "result": {
+            "status": "success",
+            "summary": "Sparse payload produced.",
+            "artifacts": {
+                "nodes_to_add": [
+                    {
+                        "logical_id": "char_elara_valerius",
+                        "node_type": "Character",
+                        "properties": {},
+                    },
+                    {
+                        "logical_id": "ki_royal_secret",
+                        "node_type": "KnowledgeItem",
+                        "properties": {},
+                    },
+                ]
+            },
+        },
+    }
+
+    mapped = mapper.build_context(latest_worker_result)
+    nodes = mapped.context.get("nodes_to_add", [])
+    by_id = {row["logical_id"]: row for row in nodes}
+
+    assert by_id["char_elara_valerius"]["properties"]["name"] == "char_elara_valerius"
+    assert by_id["ki_royal_secret"]["properties"]["description"] == "ki_royal_secret"

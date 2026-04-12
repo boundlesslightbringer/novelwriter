@@ -3,11 +3,11 @@ Consequence subagent integration tests for Group 5 skills.
 
 **Primary gate (live Vertex / Gemini + MongoDB fixture):**
 
-  uv run pytest test_consequence_subagent.py -s -v -m integration
+  uv run pytest tests/test_consequence_subagent.py -s -v -m integration
 
 **Fast local check (no LLM — validates required-context handling only):**
 
-  uv run pytest test_consequence_subagent.py -q -m "not integration"
+  uv run pytest tests/test_consequence_subagent.py -q -m "not integration"
 
 Integration tests intentionally do not mock the model; they validate the real
 internal subgraph/chain paths used before full novelwriter end-to-end wiring.

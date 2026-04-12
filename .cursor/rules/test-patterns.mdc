@@ -5,7 +5,7 @@ alwaysApply: false
 # Test Patterns for Novelwriter Integration Tests
 
 ## Test file structure
-Follow test_character_integration_chain.py and test_plotting_subagent.py
+Follow tests/test_character_integration_chain.py and tests/test_plotting_subagent.py
 as the canonical patterns. Every test file must have:
 
 1. @pytest.fixture(autouse=True) setup_test_db that:
@@ -18,7 +18,7 @@ as the canonical patterns. Every test file must have:
 2. @pytest.mark.integration on every test function
 
 3. Run command in docstring:
-   uv run pytest <filename> -s -v -m integration
+   uv run pytest tests/<filename> -s -v -m integration
 
 ---
 
@@ -84,7 +84,7 @@ The consequence must propagate across the relationship to be meaningful.
 Also seed: an existing CascadeChain node to test the extend_existing path.
 
 ### gardener-plotting-system (already tested — do not modify)
-Pattern in test_plotting_subagent.py is the reference.
+Pattern in tests/test_plotting_subagent.py is the reference.
 
 ---
 

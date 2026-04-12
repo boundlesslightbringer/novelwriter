@@ -171,7 +171,7 @@ class BaseWorkerSubagent:
         if config is None:
             config = {}
         if "recursion_limit" not in config:
-            config["recursion_limit"] = 15
+            config["recursion_limit"] = 50
 
         worker_request = state.get("worker_request")
         if not worker_request:

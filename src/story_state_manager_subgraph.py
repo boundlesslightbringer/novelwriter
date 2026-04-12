@@ -3,9 +3,11 @@ from typing import Any, Dict, List, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
+from pydantic import ValidationError
 from typing_extensions import TypedDict
 
 from src.agents.base import WorkerResponse
+from src.kg_models import AddEdgeArgs, AddNodeArgs, UpdateEdgeArgs, UpdateNodeArgs
 from src.story_state_temporal_chain import (
     run_edge_temporal_update_chain,
     run_node_temporal_update_chain,
@@ -37,6 +39,7 @@ class StoryStatePersistState(TypedDict, total=False):
     response_status: str
     response_summary: str
     response_artifacts: Dict[str, Any]
+    invalid_records: List[Dict[str, Any]]
 
 
 def _ensure_dict(value: Any) -> Dict[str, Any]:
@@ -284,8 +287,15 @@ def _tool_error_message(result: Any) -> str:
 def _dedupe_records(
     records: List[Dict[str, Any]], step_name: str
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
-    seen: set[str] = set()
-    deduped: List[Dict[str, Any]] = []
+    """Collapse duplicate logical_ids within one batch.
+
+    Creative workers / mappers often emit the same node or edge twice (e.g. parallel
+    subgraph steps). Treating those as hard failures caused whole batch persists to
+    report ``failed`` despite successful writes. **Later records win** so the richest
+    or final payload is kept; only rows with missing ``logical_id`` are failures.
+    """
+    by_id: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
     failures: List[Dict[str, str]] = []
     for record in records:
         logical_id = str(record.get("logical_id") or "")
@@ -298,24 +308,53 @@ def _dedupe_records(
                 }
             )
             continue
-        if logical_id in seen:
-            failures.append(
-                {
-                    "logical_id": logical_id,
-                    "step": step_name,
-                    "error": "Duplicate logical_id skipped.",
-                }
-            )
-            continue
-        seen.add(logical_id)
-        deduped.append(record)
+        if logical_id not in by_id:
+            order.append(logical_id)
+        by_id[logical_id] = record
+    deduped = [by_id[lid] for lid in order]
     return deduped, failures
+
+
+ALLOWED_EDGE_TYPES: frozenset[str] = frozenset(
+    {
+        "KNOWS",
+        "RELATIONSHIP",
+        "LOCATED_AT",
+        "CAUSES",
+        "CONTROLS",
+        "INVOLVES",
+        "PAYS_OFF_IN",
+        "ALLIED_WITH",
+        "AT_WAR_WITH",
+        "CONNECTED_TO",
+        "BELONGS_TO_CULTURE",
+        "DEPENDS_ON",
+        "DESCRIBES",
+        "INFORMED",
+        "CONFLICTS_WITH",
+    }
+)
+
+
+def _build_failure_record(
+    record: Dict[str, Any],
+    *,
+    step: str,
+    reason: str,
+    error: str,
+) -> Dict[str, str]:
+    return {
+        "logical_id": str(record.get("logical_id") or ""),
+        "step": step,
+        "reason": reason,
+        "error": error,
+    }
 
 
 def _build_story_state_subgraph() -> Any:
     graph = StateGraph(StoryStatePersistState)
 
-    def validate_payload(state: StoryStatePersistState) -> StoryStatePersistState:
+    def collect_and_normalize_payload(state: StoryStatePersistState) -> StoryStatePersistState:
         context = _ensure_dict(state.get("context"))
         chapter = _extract_chapter(context)
         if chapter <= 0:
@@ -344,103 +383,242 @@ def _build_story_state_subgraph() -> Any:
         if not any([nodes_to_add, nodes_to_update, edges_to_add, edges_to_update]):
             errors.append("No write records provided. Expected at least one write list in context.")
 
-        return {
-            "chapter": chapter,
-            "is_batch": is_batch,
-            "nodes_to_add": nodes_to_add,
-            "nodes_to_update": nodes_to_update,
-            "edges_to_add": edges_to_add,
-            "edges_to_update": edges_to_update,
-            "errors": errors,
-            "records_updated": [],
-            "records_failed": [],
-            "verification": {"verified_nodes": 0, "verified_edges": 0},
-        }
+        normalized_nodes_to_add = [_normalize_add_node(record, chapter) for record in nodes_to_add]
+        normalized_nodes_to_update = [_normalize_update_node(record, chapter) for record in nodes_to_update]
+        normalized_edges_to_add = [_normalize_add_edge(record, chapter) for record in edges_to_add]
+        normalized_edges_to_update = [_normalize_update_edge(record, chapter) for record in edges_to_update]
 
-    def route_after_validation(
-        state: StoryStatePersistState,
-    ) -> Literal["finalize_terminal_failed", "validate_batch", "plan_writes"]:
-        if state.get("errors"):
-            return "finalize_terminal_failed"
-        if state.get("is_batch"):
-            return "validate_batch"
-        return "plan_writes"
-
-    def validate_batch(state: StoryStatePersistState) -> StoryStatePersistState:
-        chapter = int(state.get("chapter", 0))
-        normalized_nodes_to_add = [_normalize_add_node(record, chapter) for record in state.get("nodes_to_add", [])]
-        normalized_nodes_to_update = [
-            _normalize_update_node(record, chapter) for record in state.get("nodes_to_update", [])
-        ]
-        normalized_edges_to_add = [_normalize_add_edge(record, chapter) for record in state.get("edges_to_add", [])]
-        normalized_edges_to_update = [
-            _normalize_update_edge(record, chapter) for record in state.get("edges_to_update", [])
-        ]
-
-        nodes_to_add, failed_nodes_add = _dedupe_records(normalized_nodes_to_add, "dedupe_and_normalize_ids")
-        nodes_to_update, failed_nodes_update = _dedupe_records(normalized_nodes_to_update, "dedupe_and_normalize_ids")
-        edges_to_add, failed_edges_add = _dedupe_records(normalized_edges_to_add, "dedupe_and_normalize_ids")
-        edges_to_update, failed_edges_update = _dedupe_records(normalized_edges_to_update, "dedupe_and_normalize_ids")
-
-        return {
-            "nodes_to_add": nodes_to_add,
-            "nodes_to_update": nodes_to_update,
-            "edges_to_add": edges_to_add,
-            "edges_to_update": edges_to_update,
-            "records_failed": list(state.get("records_failed", []))
-            + failed_nodes_add
-            + failed_nodes_update
-            + failed_edges_add
-            + failed_edges_update,
-        }
-
-    def plan_writes(state: StoryStatePersistState) -> StoryStatePersistState:
-        chapter = int(state.get("chapter", 0))
-        normalized_nodes_to_add = [_normalize_add_node(record, chapter) for record in state.get("nodes_to_add", [])]
-        normalized_nodes_to_update = [
-            _normalize_update_node(record, chapter) for record in state.get("nodes_to_update", [])
-        ]
-        normalized_edges_to_add = [_normalize_add_edge(record, chapter) for record in state.get("edges_to_add", [])]
-        normalized_edges_to_update = [
-            _normalize_update_edge(record, chapter) for record in state.get("edges_to_update", [])
-        ]
+        nodes_to_add_deduped, failed_nodes_add = _dedupe_records(
+            normalized_nodes_to_add, "dedupe_and_normalize_ids"
+        )
+        nodes_to_update_deduped, failed_nodes_update = _dedupe_records(
+            normalized_nodes_to_update, "dedupe_and_normalize_ids"
+        )
+        edges_to_add_deduped, failed_edges_add = _dedupe_records(
+            normalized_edges_to_add, "dedupe_and_normalize_ids"
+        )
+        edges_to_update_deduped, failed_edges_update = _dedupe_records(
+            normalized_edges_to_update, "dedupe_and_normalize_ids"
+        )
 
         proposed_updates: List[Dict[str, Any]] = []
         proposed_updates.extend(
             {"action": "add_node", "logical_id": record.get("logical_id", "")}
-            for record in normalized_nodes_to_add
+            for record in nodes_to_add_deduped
         )
         proposed_updates.extend(
             {"action": "update_node", "logical_id": record.get("logical_id", "")}
-            for record in normalized_nodes_to_update
+            for record in nodes_to_update_deduped
         )
         proposed_updates.extend(
             {"action": "add_edge", "logical_id": record.get("logical_id", "")}
-            for record in normalized_edges_to_add
+            for record in edges_to_add_deduped
         )
         proposed_updates.extend(
             {"action": "update_edge", "logical_id": record.get("logical_id", "")}
-            for record in normalized_edges_to_update
+            for record in edges_to_update_deduped
         )
 
+        return {
+            "chapter": chapter,
+            "is_batch": is_batch,
+            "nodes_to_add": nodes_to_add_deduped,
+            "nodes_to_update": nodes_to_update_deduped,
+            "edges_to_add": edges_to_add_deduped,
+            "edges_to_update": edges_to_update_deduped,
+            "proposed_updates": proposed_updates,
+            "errors": errors,
+            "records_updated": [],
+            "records_failed": failed_nodes_add + failed_nodes_update + failed_edges_add + failed_edges_update,
+            "verification": {"verified_nodes": 0, "verified_edges": 0},
+            "invalid_records": [],
+        }
+
+    def route_after_validation(
+        state: StoryStatePersistState,
+    ) -> Literal["finalize_terminal_failed", "validate_required_shape"]:
+        if state.get("errors"):
+            return "finalize_terminal_failed"
+        return "validate_required_shape"
+
+    def validate_required_shape(state: StoryStatePersistState) -> StoryStatePersistState:
+        invalid_records: List[Dict[str, Any]] = list(state.get("invalid_records", []))
+
+        for record in state.get("nodes_to_update", []):
+            if not record.get("updated_properties"):
+                invalid_records.append(
+                    {
+                        "record": record,
+                        "reason": "invalid_properties",
+                        "step": "validate_required_shape",
+                        "error": "Node update requires non-empty updated_properties.",
+                    }
+                )
+        for record in state.get("edges_to_update", []):
+            if not record.get("updated_properties"):
+                invalid_records.append(
+                    {
+                        "record": record,
+                        "reason": "invalid_properties",
+                        "step": "validate_required_shape",
+                        "error": "Edge update requires non-empty updated_properties.",
+                    }
+                )
+
+        return {"invalid_records": invalid_records}
+
+    def validate_semantics(state: StoryStatePersistState) -> StoryStatePersistState:
+        invalid_records: List[Dict[str, Any]] = list(state.get("invalid_records", []))
+
+        for record in state.get("nodes_to_add", []):
+            if not _ensure_dict(record.get("properties")):
+                invalid_records.append(
+                    {
+                        "record": record,
+                        "reason": "invalid_properties",
+                        "step": "validate_semantics",
+                        "error": "Node add requires non-empty properties.",
+                    }
+                )
+
+        for record in state.get("edges_to_add", []):
+            from_node = str(record.get("from_node") or "").strip()
+            to_node = str(record.get("to_node") or "").strip()
+            edge_type = str(record.get("edge_type") or "").strip()
+            if not from_node or not to_node:
+                invalid_records.append(
+                    {
+                        "record": record,
+                        "reason": "missing_endpoints",
+                        "step": "validate_semantics",
+                        "error": "Edge add requires non-empty from_node and to_node.",
+                    }
+                )
+                continue
+            if edge_type not in ALLOWED_EDGE_TYPES:
+                invalid_records.append(
+                    {
+                        "record": record,
+                        "reason": "invalid_edge_type",
+                        "step": "validate_semantics",
+                        "error": f"Unsupported edge_type '{edge_type}'.",
+                    }
+                )
+
+        return {"invalid_records": invalid_records}
+
+    def validate_strict_type_schema(state: StoryStatePersistState) -> StoryStatePersistState:
+        invalid_records: List[Dict[str, Any]] = list(state.get("invalid_records", []))
+
+        schema_checks: List[tuple[str, Any, str]] = [
+            ("nodes_to_add", AddNodeArgs, "validate_strict_type_schema"),
+            ("nodes_to_update", UpdateNodeArgs, "validate_strict_type_schema"),
+            ("edges_to_add", AddEdgeArgs, "validate_strict_type_schema"),
+            ("edges_to_update", UpdateEdgeArgs, "validate_strict_type_schema"),
+        ]
+
+        for list_name, schema, step_name in schema_checks:
+            for record in state.get(list_name, []):
+                try:
+                    schema.model_validate(record)
+                except ValidationError as error:
+                    invalid_records.append(
+                        {
+                            "record": record,
+                            "reason": "schema_validation_failed",
+                            "step": step_name,
+                            "error": str(error).replace("\n", " | "),
+                        }
+                    )
+
+        return {"invalid_records": invalid_records}
+
+    def filter_or_fail_invalid_records(state: StoryStatePersistState) -> StoryStatePersistState:
+        invalid_records = list(state.get("invalid_records", []))
+        records_failed: List[Dict[str, str]] = list(state.get("records_failed", []))
         errors: List[str] = list(state.get("errors", []))
-        for record in normalized_nodes_to_add + normalized_nodes_to_update + normalized_edges_to_add + normalized_edges_to_update:
-            if not record.get("logical_id"):
-                errors.append("All write records must include non-empty logical_id.")
+
+        unique_invalid_records: List[Dict[str, Any]] = []
+        seen_identity_keys: set[tuple[Any, Any, Any, Any]] = set()
+        for entry in invalid_records:
+            identity_key = (
+                entry.get("record", {}).get("logical_id"),
+                entry.get("step"),
+                entry.get("reason"),
+                entry.get("error"),
+            )
+            if identity_key in seen_identity_keys:
+                continue
+            seen_identity_keys.add(identity_key)
+            unique_invalid_records.append(entry)
+
+        invalid_ids = {
+            str(entry.get("record", {}).get("logical_id") or "")
+            for entry in unique_invalid_records
+            if str(entry.get("record", {}).get("logical_id") or "")
+        }
+
+        def _is_valid(record: Dict[str, Any]) -> bool:
+            logical_id = str(record.get("logical_id") or "")
+            if not logical_id:
+                return True
+            return logical_id not in invalid_ids
+
+        filtered_nodes_to_add = [record for record in state.get("nodes_to_add", []) if _is_valid(record)]
+        filtered_nodes_to_update = [record for record in state.get("nodes_to_update", []) if _is_valid(record)]
+        filtered_edges_to_add = [record for record in state.get("edges_to_add", []) if _is_valid(record)]
+        filtered_edges_to_update = [record for record in state.get("edges_to_update", []) if _is_valid(record)]
+
+        for entry in unique_invalid_records:
+            record = _ensure_dict(entry.get("record"))
+            step = str(entry.get("step") or "validation")
+            reason = str(entry.get("reason") or "schema_validation_failed")
+            error = str(entry.get("error") or "Record failed validation.")
+            records_failed.append(
+                _build_failure_record(
+                    record,
+                    step=step,
+                    reason=reason,
+                    error=error,
+                )
+            )
+            errors.append(
+                f"{reason}: {record.get('logical_id', '') or '<missing logical_id>'} failed at {step}. {error}"
+            )
+
+        if not any([filtered_nodes_to_add, filtered_nodes_to_update, filtered_edges_to_add, filtered_edges_to_update]):
+            errors.append("All candidate records failed validation before contradiction checks.")
 
         return {
-            "nodes_to_add": normalized_nodes_to_add,
-            "nodes_to_update": normalized_nodes_to_update,
-            "edges_to_add": normalized_edges_to_add,
-            "edges_to_update": normalized_edges_to_update,
-            "proposed_updates": proposed_updates,
+            "nodes_to_add": filtered_nodes_to_add,
+            "nodes_to_update": filtered_nodes_to_update,
+            "edges_to_add": filtered_edges_to_add,
+            "edges_to_update": filtered_edges_to_update,
+            "proposed_updates": [
+                {"action": "add_node", "logical_id": record.get("logical_id", "")}
+                for record in filtered_nodes_to_add
+            ]
+            + [
+                {"action": "update_node", "logical_id": record.get("logical_id", "")}
+                for record in filtered_nodes_to_update
+            ]
+            + [
+                {"action": "add_edge", "logical_id": record.get("logical_id", "")}
+                for record in filtered_edges_to_add
+            ]
+            + [
+                {"action": "update_edge", "logical_id": record.get("logical_id", "")}
+                for record in filtered_edges_to_update
+            ],
+            "invalid_records": unique_invalid_records,
+            "records_failed": records_failed,
             "errors": errors,
         }
 
-    def route_after_batch_validation(
+    def route_after_filter(
         state: StoryStatePersistState,
     ) -> Literal["finalize_terminal_failed", "detect_contradictions"]:
-        if not any(
+        if state.get("errors") and not any(
             [
                 state.get("nodes_to_add"),
                 state.get("nodes_to_update"),
@@ -449,12 +627,14 @@ def _build_story_state_subgraph() -> Any:
             ]
         ):
             return "finalize_terminal_failed"
-        return "detect_contradictions"
-
-    def route_after_plan(
-        state: StoryStatePersistState,
-    ) -> Literal["finalize_terminal_failed", "detect_contradictions"]:
-        if state.get("errors"):
+        if not any(
+            [
+                state.get("nodes_to_add"),
+                state.get("nodes_to_update"),
+                state.get("edges_to_add"),
+                state.get("edges_to_update"),
+            ]
+        ):
             return "finalize_terminal_failed"
         return "detect_contradictions"
 
@@ -700,9 +880,11 @@ def _build_story_state_subgraph() -> Any:
             "response_artifacts": artifacts,
         }
 
-    graph.add_node("validate_payload", validate_payload)
-    graph.add_node("validate_batch", validate_batch)
-    graph.add_node("plan_writes", plan_writes)
+    graph.add_node("collect_and_normalize_payload", collect_and_normalize_payload)
+    graph.add_node("validate_required_shape", validate_required_shape)
+    graph.add_node("validate_semantics", validate_semantics)
+    graph.add_node("validate_strict_type_schema", validate_strict_type_schema)
+    graph.add_node("filter_or_fail_invalid_records", filter_or_fail_invalid_records)
     graph.add_node("detect_contradictions", detect_contradictions)
     graph.add_node("write_nodes", write_nodes)
     graph.add_node("write_edges", write_edges)
@@ -711,24 +893,21 @@ def _build_story_state_subgraph() -> Any:
     graph.add_node("finalize_blocked", finalize_blocked)
     graph.add_node("finalize_terminal_failed", finalize_terminal_failed)
 
-    graph.add_edge(START, "validate_payload")
+    graph.add_edge(START, "collect_and_normalize_payload")
     graph.add_conditional_edges(
-        "validate_payload",
+        "collect_and_normalize_payload",
         route_after_validation,
         {
-            "validate_batch": "validate_batch",
-            "plan_writes": "plan_writes",
+            "validate_required_shape": "validate_required_shape",
             "finalize_terminal_failed": "finalize_terminal_failed",
         },
     )
+    graph.add_edge("validate_required_shape", "validate_semantics")
+    graph.add_edge("validate_semantics", "validate_strict_type_schema")
+    graph.add_edge("validate_strict_type_schema", "filter_or_fail_invalid_records")
     graph.add_conditional_edges(
-        "validate_batch",
-        route_after_batch_validation,
-        {"detect_contradictions": "detect_contradictions", "finalize_terminal_failed": "finalize_terminal_failed"},
-    )
-    graph.add_conditional_edges(
-        "plan_writes",
-        route_after_plan,
+        "filter_or_fail_invalid_records",
+        route_after_filter,
         {"detect_contradictions": "detect_contradictions", "finalize_terminal_failed": "finalize_terminal_failed"},
     )
     graph.add_conditional_edges(

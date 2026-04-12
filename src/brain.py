@@ -26,8 +26,6 @@ MVP_WORKER_SEQUENCE = [
     "plotting_subagent",
     "writing_subagent",
 ]
-
-
 def _maybe_bootstrap_trace_quality_gate(
     *,
     latest: Dict[str, Any],
@@ -82,6 +80,10 @@ def _maybe_bootstrap_trace_quality_gate(
 
 def _ensure_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _ensure_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
 
 
 def _is_non_empty_text(value: Any) -> bool:
@@ -695,6 +697,468 @@ class BrainNode:
             quality_assessment=None,
         )
 
+    def _bootstrap_constraints_satisfied(self, state: OrchestratorState) -> bool:
+        genre, themes = self._extract_bootstrap_constraints(self._last_user_text(state))
+        return bool(genre) and bool(themes)
+
+    @staticmethod
+    def _context_skill_hint(context: Dict[str, Any]) -> str:
+        return str(context.get("skill") or context.get("operation") or "").strip().lower()
+
+    def _worker_history_list(self, state: OrchestratorState) -> list[Dict[str, Any]]:
+        history = state.get("worker_history", [])
+        if not isinstance(history, list):
+            return []
+        return [_ensure_dict(entry) for entry in history]
+
+    def _latest_finding_seed_planning_entry(self, history: list[Dict[str, Any]]) -> Dict[str, Any]:
+        for entry in reversed(history):
+            if str(entry.get("worker") or "") != "planning_subagent":
+                continue
+            result_data = _ensure_dict(entry.get("result"))
+            if str(result_data.get("status") or "") != "success":
+                continue
+            ctx = _ensure_dict(entry.get("context"))
+            sk = self._context_skill_hint(ctx)
+            if sk in {"finding-a-seed", "finding_a_seed"}:
+                artifacts = _ensure_dict(result_data.get("artifacts"))
+                if isinstance(artifacts.get("seed_document"), dict) and artifacts.get("seed_document"):
+                    return entry
+        return {}
+
+    def _latest_pass1_planning_entry(self, history: list[Dict[str, Any]]) -> Dict[str, Any]:
+        for entry in reversed(history):
+            if str(entry.get("worker") or "") != "planning_subagent":
+                continue
+            result_data = _ensure_dict(entry.get("result"))
+            if str(result_data.get("status") or "") != "success":
+                continue
+            artifacts = _ensure_dict(result_data.get("artifacts"))
+            if artifacts.get("pass") == 1 and isinstance(artifacts.get("character_slot_sketches"), list):
+                return entry
+        return {}
+
+    def _latest_pass2_planning_entry(self, history: list[Dict[str, Any]]) -> Dict[str, Any]:
+        for entry in reversed(history):
+            if str(entry.get("worker") or "") != "planning_subagent":
+                continue
+            result_data = _ensure_dict(entry.get("result"))
+            if str(result_data.get("status") or "") != "success":
+                continue
+            artifacts = _ensure_dict(result_data.get("artifacts"))
+            if artifacts.get("pass") == 2:
+                return entry
+        return {}
+
+    def _pass2_compass_for_worldbuilding(self, pass2_artifacts: Dict[str, Any]) -> Dict[str, Any]:
+        """Pass-through copy suitable for worldbuilding subgraph (expects a dict)."""
+        return dict(pass2_artifacts) if pass2_artifacts else {}
+
+    def _entry_before_latest_ssm(self, history: list[Dict[str, Any]]) -> Dict[str, Any]:
+        if len(history) < 2:
+            return {}
+        last = history[-1]
+        if str(last.get("worker") or "") != "story_state_manager":
+            return {}
+        return _ensure_dict(history[-2])
+
+    def _last_pass1_history_index(self, history: list[Dict[str, Any]]) -> int:
+        for idx in range(len(history) - 1, -1, -1):
+            entry = history[idx]
+            if str(entry.get("worker") or "") != "planning_subagent":
+                continue
+            result_data = _ensure_dict(entry.get("result"))
+            if str(result_data.get("status") or "") != "success":
+                continue
+            art = _ensure_dict(result_data.get("artifacts"))
+            if art.get("pass") == 1 and isinstance(art.get("character_slot_sketches"), list):
+                return idx
+        return -1
+
+    def _early_concepts_since_pass1(self, history: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        idx = self._last_pass1_history_index(history)
+        if idx < 0:
+            return []
+        concepts: list[Dict[str, Any]] = []
+        for entry in history[idx + 1 :]:
+            if str(entry.get("worker") or "") != "character_subagent":
+                continue
+            ctx = _ensure_dict(entry.get("context"))
+            if not isinstance(ctx.get("character_slot_sketch"), dict):
+                continue
+            result_data = _ensure_dict(entry.get("result"))
+            if str(result_data.get("status") or "") != "success":
+                continue
+            slot_sk = _ensure_dict(ctx.get("character_slot_sketch"))
+            slot_id = str(slot_sk.get("slot_id") or "").strip()
+            art = _ensure_dict(result_data.get("artifacts"))
+            char_concept = _ensure_dict(art.get("character_concept"))
+            concepts.append(
+                {
+                    "slot_id": slot_id,
+                    "character_id": str(char_concept.get("character_id") or "").strip()
+                    or str(char_concept.get("assigned_narrative_role") or slot_id or "char_slot").replace(
+                        " ", "_"
+                    ).lower(),
+                    "name": str(char_concept.get("name") or char_concept.get("assigned_narrative_role") or "").strip()
+                    or slot_id
+                    or "Character",
+                    "core_contradiction": str(char_concept.get("core_contradiction") or "").strip()
+                    or "Contradiction to refine in creation.",
+                }
+            )
+        return concepts
+
+    def _missing_slot_sketches(
+        self,
+        pass1_artifacts: Dict[str, Any],
+        covered_slot_ids: set[str],
+    ) -> list[Dict[str, Any]]:
+        slots = _ensure_list(pass1_artifacts.get("character_slot_sketches"))
+        missing: list[Dict[str, Any]] = []
+        for slot in slots:
+            row = _ensure_dict(slot)
+            sid = str(row.get("slot_id") or "").strip()
+            if sid and sid not in covered_slot_ids:
+                missing.append(row)
+        return missing
+
+    def _world_context_sketch_from_pass1(self, pass1_artifacts: Dict[str, Any]) -> str:
+        parts = [
+            str(pass1_artifacts.get("starting_situation") or "").strip(),
+            str(pass1_artifacts.get("draft_ending_destination") or "").strip(),
+            str(pass1_artifacts.get("draft_core_conflict_question") or "").strip(),
+            str(pass1_artifacts.get("compass_notes") or "").strip(),
+        ]
+        text = "\n\n".join(p for p in parts if p).strip()
+        return text or "Bootstrap world context pending detailed worldbuilding."
+
+    def _bootstrap_progression_decision(self, state: OrchestratorState) -> BrainDecision | None:
+        if self._is_mvp_mode(state):
+            return None
+        if not self._bootstrap_constraints_satisfied(state):
+            return None
+
+        latest = _ensure_dict(state.get("latest_worker_result"))
+        if not latest:
+            return None
+
+        history = self._worker_history_list(state)
+        accept = QualityVerdict(verdict="accept", reason="Bootstrap sequencer accepts prior worker output.")
+        genre, themes = self._extract_bootstrap_constraints(self._last_user_text(state))
+
+        worker = str(latest.get("worker") or "")
+        result_data = _ensure_dict(latest.get("result"))
+        status = str(result_data.get("status") or "").strip()
+        artifacts = _ensure_dict(result_data.get("artifacts"))
+        context = _ensure_dict(latest.get("context"))
+
+        if worker == "story_state_manager" and status == "success":
+            prior = self._entry_before_latest_ssm(history)
+            if not prior:
+                return None
+            prior_worker = str(prior.get("worker") or "")
+            prior_result = _ensure_dict(prior.get("result"))
+            prior_status = str(prior_result.get("status") or "").strip()
+            prior_art = _ensure_dict(prior_result.get("artifacts"))
+            prior_ctx = _ensure_dict(prior.get("context"))
+
+            if prior_worker == "planning_subagent" and prior_status == "success":
+                if prior_art.get("pass") == 2 and prior_art.get("plot_thread_seeds"):
+                    compass = self._pass2_compass_for_worldbuilding(prior_art)
+                    return BrainDecision(
+                        reasoning="Bootstrap sequencer: after persisting Pass 2 plot seeds, run worldbuilding with endpoint_compass.",
+                        action="delegate",
+                        worker="planning_subagent",
+                        task="Construct foundational world architecture from the Pass 2 endpoint compass.",
+                        context={
+                            "skill": "worldbuilding",
+                            "operation": "worldbuilding",
+                            "chapter_context": int(prior_ctx.get("chapter_context") or 1),
+                            "endpoint_compass": compass,
+                        },
+                        quality_assessment=None,
+                    )
+                if self._context_skill_hint(prior_ctx) in {"worldbuilding", "world_building"} or prior_art.get(
+                    "political_power_map"
+                ):
+                    return None
+                sk = self._context_skill_hint(prior_ctx)
+                if sk in {"finding-a-seed", "finding_a_seed"}:
+                    pass1_entry = self._latest_pass1_planning_entry(history)
+                    if pass1_entry:
+                        return None
+                    seed_entry = self._latest_finding_seed_planning_entry(history)
+                    seed_doc = _ensure_dict(
+                        _ensure_dict(seed_entry.get("result")).get("artifacts", {}).get("seed_document")
+                    )
+                    if not seed_doc:
+                        return None
+                    return BrainDecision(
+                        reasoning="Bootstrap sequencer: after seed persistence, run defining-rough-endpoints Pass 1.",
+                        action="delegate",
+                        worker="planning_subagent",
+                        task="Run defining-rough-endpoints Pass 1 from the validated seed document.",
+                        context={
+                            "skill": "defining-rough-endpoints",
+                            "operation": "defining-rough-endpoints",
+                            "pass": "1",
+                            "chapter_context": 1,
+                            "seed_document": seed_doc,
+                            "genre": genre,
+                            "themes": themes,
+                        },
+                        quality_assessment=None,
+                    )
+
+            if prior_worker == "character_subagent" and prior_status == "success":
+                seed_entry = self._latest_finding_seed_planning_entry(history)
+                seed_doc = _ensure_dict(
+                    _ensure_dict(seed_entry.get("result")).get("artifacts", {}).get("seed_document")
+                )
+                pass1_entry = self._latest_pass1_planning_entry(history)
+                if not pass1_entry:
+                    if not seed_doc:
+                        return None
+                    return BrainDecision(
+                        reasoning="Bootstrap sequencer: recover ordering — run defining-rough-endpoints Pass 1.",
+                        action="delegate",
+                        worker="planning_subagent",
+                        task="Run defining-rough-endpoints Pass 1 from the validated seed document.",
+                        context={
+                            "skill": "defining-rough-endpoints",
+                            "operation": "defining-rough-endpoints",
+                            "pass": "1",
+                            "chapter_context": 1,
+                            "seed_document": seed_doc,
+                            "genre": genre,
+                            "themes": themes,
+                        },
+                        quality_assessment=None,
+                    )
+                pass1_art = _ensure_dict(_ensure_dict(pass1_entry.get("result")).get("artifacts"))
+                covered = {
+                    str(_ensure_dict(c).get("slot_id") or "").strip()
+                    for c in self._early_concepts_since_pass1(history)
+                }
+                missing_slots = self._missing_slot_sketches(pass1_art, covered)
+                if missing_slots:
+                    slot = missing_slots[0]
+                    return BrainDecision(
+                        reasoning="Bootstrap sequencer: early character-conception for next slot after persistence.",
+                        action="delegate",
+                        worker="character_subagent",
+                        task=(
+                            f"Run character-conception in early invocation mode for slot {slot.get('slot_id', '')}."
+                        ),
+                        context={
+                            "skill": "character-conception",
+                            "chapter_context": 1,
+                            "character_slot_sketch": slot,
+                            "world_context_sketch": self._world_context_sketch_from_pass1(pass1_art),
+                            "thematic_constraints": {"genre": genre, "themes": themes},
+                        },
+                        quality_assessment=None,
+                    )
+                pass2_entry = self._latest_pass2_planning_entry(history)
+                if not pass2_entry:
+                    concepts = self._early_concepts_since_pass1(history)
+                    if not concepts:
+                        return None
+                    return BrainDecision(
+                        reasoning="Bootstrap sequencer: all slots conceived — run defining-rough-endpoints Pass 2.",
+                        action="delegate",
+                        worker="planning_subagent",
+                        task="Run defining-rough-endpoints Pass 2 to refine milestones with character concepts.",
+                        context={
+                            "skill": "defining-rough-endpoints-pass-2",
+                            "pass": "2",
+                            "chapter_context": 1,
+                            "pass_1_output": pass1_art,
+                            "character_concepts": concepts,
+                        },
+                        quality_assessment=None,
+                    )
+            return None
+
+        if worker == "planning_subagent" and status == "success" and artifacts.get("pass") == 1:
+            pass1_art = artifacts
+            if self._last_pass1_history_index(history) < 0:
+                return None
+            covered_ids = {
+                str(_ensure_dict(c).get("slot_id") or "").strip()
+                for c in self._early_concepts_since_pass1(history)
+            }
+            missing = self._missing_slot_sketches(pass1_art, covered_ids)
+            if missing:
+                slot = missing[0]
+                return BrainDecision(
+                    reasoning="Bootstrap sequencer: delegate early character-conception for Pass 1 slot.",
+                    action="delegate",
+                    worker="character_subagent",
+                    task=f"Run character-conception in early invocation mode for slot {slot.get('slot_id', '')}.",
+                    context={
+                        "skill": "character-conception",
+                        "chapter_context": 1,
+                        "character_slot_sketch": slot,
+                        "world_context_sketch": self._world_context_sketch_from_pass1(pass1_art),
+                        "thematic_constraints": {"genre": genre, "themes": themes},
+                    },
+                    quality_assessment=accept,
+                )
+            concepts = self._early_concepts_since_pass1(history)
+            if not concepts:
+                return None
+            return BrainDecision(
+                reasoning="Bootstrap sequencer: Pass 1 complete — run defining-rough-endpoints Pass 2.",
+                action="delegate",
+                worker="planning_subagent",
+                task="Run defining-rough-endpoints Pass 2 to refine milestones with character concepts.",
+                context={
+                    "skill": "defining-rough-endpoints-pass-2",
+                    "pass": "2",
+                    "chapter_context": 1,
+                    "pass_1_output": pass1_art,
+                    "character_concepts": concepts,
+                },
+                quality_assessment=accept,
+            )
+
+        if worker == "character_subagent" and status == "success":
+            if not isinstance(context.get("character_slot_sketch"), dict):
+                return None
+            pass1_entry = self._latest_pass1_planning_entry(history)
+            if not pass1_entry:
+                return None
+            pass1_art = _ensure_dict(_ensure_dict(pass1_entry.get("result")).get("artifacts"))
+            covered_ids = {
+                str(_ensure_dict(c).get("slot_id") or "").strip()
+                for c in self._early_concepts_since_pass1(history)
+            }
+            missing = self._missing_slot_sketches(pass1_art, covered_ids)
+            if missing:
+                slot = missing[0]
+                return BrainDecision(
+                    reasoning="Bootstrap sequencer: next early character-conception slot.",
+                    action="delegate",
+                    worker="character_subagent",
+                    task=f"Run character-conception in early invocation mode for slot {slot.get('slot_id', '')}.",
+                    context={
+                        "skill": "character-conception",
+                        "chapter_context": 1,
+                        "character_slot_sketch": slot,
+                        "world_context_sketch": self._world_context_sketch_from_pass1(pass1_art),
+                        "thematic_constraints": {"genre": genre, "themes": themes},
+                    },
+                    quality_assessment=accept,
+                )
+            concepts = self._early_concepts_since_pass1(history)
+            if not concepts:
+                return None
+            return BrainDecision(
+                reasoning="Bootstrap sequencer: all slots conceived — run defining-rough-endpoints Pass 2.",
+                action="delegate",
+                worker="planning_subagent",
+                task="Run defining-rough-endpoints Pass 2 to refine milestones with character concepts.",
+                context={
+                    "skill": "defining-rough-endpoints-pass-2",
+                    "pass": "2",
+                    "chapter_context": 1,
+                    "pass_1_output": pass1_art,
+                    "character_concepts": concepts,
+                },
+                quality_assessment=accept,
+            )
+
+        if worker == "planning_subagent" and status == "success" and artifacts.get("pass") == 2:
+            return BrainDecision(
+                reasoning="Bootstrap sequencer: accept defining-rough-endpoints Pass 2 and persist plot/payoff seeds.",
+                action="delegate",
+                worker="story_state_manager",
+                task="Persist accepted records to story state",
+                context={},
+                quality_assessment=accept,
+            )
+
+        return None
+
+    def _merge_bootstrap_worldbuilding_compass(self, decision: BrainDecision, state: OrchestratorState) -> None:
+        """If LLM delegates worldbuilding without endpoint_compass, inject from Pass 2 history when possible."""
+        if self._is_mvp_mode(state) or not self._bootstrap_constraints_satisfied(state):
+            return
+        if decision.action != "delegate" or decision.worker != "planning_subagent":
+            return
+        ctx = _ensure_dict(decision.context)
+        task = str(decision.task or "").lower()
+        sk = self._context_skill_hint(ctx)
+        if sk not in {"worldbuilding", "world_building"} and "worldbuilding" not in task and "world building" not in task:
+            return
+        if isinstance(ctx.get("endpoint_compass"), dict):
+            return
+        pass2_entry = self._latest_pass2_planning_entry(self._worker_history_list(state))
+        if not pass2_entry:
+            return
+        pass2_art = _ensure_dict(_ensure_dict(pass2_entry.get("result")).get("artifacts"))
+        ctx["endpoint_compass"] = self._pass2_compass_for_worldbuilding(pass2_art)
+        decision.context = ctx
+
+    def _bootstrap_planning_need_input_override(self, state: OrchestratorState) -> BrainDecision | None:
+        """Recover from planning need_input (e.g. worldbuilding without compass) without ending the turn."""
+        if self._is_mvp_mode(state) or not self._bootstrap_constraints_satisfied(state):
+            return None
+        latest = _ensure_dict(state.get("latest_worker_result"))
+        if str(latest.get("worker") or "") != "planning_subagent":
+            return None
+        result_data = _ensure_dict(latest.get("result"))
+        if str(result_data.get("status") or "") != "need_input":
+            return None
+        art = _ensure_dict(result_data.get("artifacts"))
+        history = self._worker_history_list(state)
+        skill_attempted = str(art.get("skill_attempted") or "").lower()
+        missing = art.get("missing_fields") or []
+        missing_list = missing if isinstance(missing, list) else []
+
+        if skill_attempted == "worldbuilding" or "endpoint_compass" in missing_list:
+            pass2_entry = self._latest_pass2_planning_entry(history)
+            if pass2_entry:
+                pass2_art = _ensure_dict(_ensure_dict(pass2_entry.get("result")).get("artifacts"))
+                return BrainDecision(
+                    reasoning="Bootstrap recovery: retry worldbuilding with endpoint_compass from Pass 2.",
+                    action="delegate",
+                    worker="planning_subagent",
+                    task="Construct foundational world architecture from the Pass 2 endpoint compass.",
+                    context={
+                        "skill": "worldbuilding",
+                        "operation": "worldbuilding",
+                        "chapter_context": 1,
+                        "endpoint_compass": self._pass2_compass_for_worldbuilding(pass2_art),
+                    },
+                    quality_assessment=None,
+                )
+            seed_entry = self._latest_finding_seed_planning_entry(history)
+            seed_doc = _ensure_dict(
+                _ensure_dict(seed_entry.get("result")).get("artifacts", {}).get("seed_document")
+            )
+            if seed_doc and not self._latest_pass1_planning_entry(history):
+                genre, themes = self._extract_bootstrap_constraints(self._last_user_text(state))
+                return BrainDecision(
+                    reasoning="Bootstrap recovery: run defining-rough-endpoints Pass 1 before worldbuilding.",
+                    action="delegate",
+                    worker="planning_subagent",
+                    task="Run defining-rough-endpoints Pass 1 from the validated seed document.",
+                    context={
+                        "skill": "defining-rough-endpoints",
+                        "operation": "defining-rough-endpoints",
+                        "pass": "1",
+                        "chapter_context": 1,
+                        "seed_document": seed_doc,
+                        "genre": genre,
+                        "themes": themes,
+                    },
+                    quality_assessment=None,
+                )
+        return None
+
     def _invoke_decision_model(self, state: OrchestratorState) -> BrainDecision:
         messages = [SystemMessage(content=self.system_prompt)]
         messages.extend(state.get("messages", []))
@@ -981,6 +1445,9 @@ class BrainNode:
             )
 
         if status == "need_input":
+            override = self._bootstrap_planning_need_input_override(state)
+            if override is not None:
+                return override, None, False
             questions = follow_up_questions if isinstance(follow_up_questions, list) else []
             return self._set_response(decision, "clarify", self._format_follow_up(summary, questions)), None, False
 
@@ -1150,8 +1617,13 @@ class BrainNode:
             decision = self._sanitize_and_validate_decision(decision, state)
             return self._build_state_updates(decision, state, rejection_retry=False)
 
-        decision = self._bootstrap_kickoff_decision(state) or self._invoke_decision_model(state)
+        decision = (
+            self._bootstrap_kickoff_decision(state)
+            or self._bootstrap_progression_decision(state)
+            or self._invoke_decision_model(state)
+        )
         decision = self._sanitize_and_validate_decision(decision, state)
+        self._merge_bootstrap_worldbuilding_compass(decision, state)
         decision = self._apply_infrastructure_overrides(decision, state)
         decision, _, rejection_retry = self._apply_quality_gate(decision, state)
         decision = self._sanitize_and_validate_decision(decision, state)

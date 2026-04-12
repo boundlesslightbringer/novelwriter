@@ -6,6 +6,10 @@ from langchain.tools import tool
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = PROJECT_ROOT / "skills"
+SKILL_ALIASES: dict[str, str] = {
+    "character-integration": "character-integration-with-plot",
+    "character_integration": "character-integration-with-plot",
+}
 
 
 def _extract_frontmatter(content: str) -> dict[str, Any]:
@@ -38,7 +42,23 @@ def _resolve_skill_path(skill_name: str) -> Path:
     Returns:
         Absolute path to the requested skill directory.
     """
-    return SKILLS_DIR / skill_name
+    normalized = str(skill_name or "").strip()
+    canonical = SKILL_ALIASES.get(normalized, normalized)
+    candidate = SKILLS_DIR / canonical
+    if candidate.exists():
+        return candidate
+
+    # Fallback for callers mixing hyphen/underscore style in skill names.
+    fallback_names = {
+        normalized.replace("_", "-"),
+        normalized.replace("-", "_"),
+    }
+    for fallback in fallback_names:
+        fallback_canonical = SKILL_ALIASES.get(fallback, fallback)
+        fallback_candidate = SKILLS_DIR / fallback_canonical
+        if fallback_candidate.exists():
+            return fallback_candidate
+    return candidate
 
 
 @tool
@@ -68,13 +88,25 @@ def progressive_skill_loader(skill_name: str, load_type: str, linked_path: str |
     base_dir = _resolve_skill_path(skill_name)
     main_file = base_dir / "SKILL.md"
 
-    if load_type == "frontmatter":
+    normalized_load_type = str(load_type or "").strip().lower()
+    load_type_aliases: dict[str, str] = {
+        "meta": "frontmatter",
+        "metadata": "frontmatter",
+        "header": "frontmatter",
+        "content": "full",
+        "body": "full",
+        "main": "full",
+        "file": "full",
+    }
+    normalized_load_type = load_type_aliases.get(normalized_load_type, normalized_load_type)
+
+    if normalized_load_type == "frontmatter":
         return _extract_frontmatter(main_file.read_text(encoding="utf-8"))
 
-    if load_type == "full":
+    if normalized_load_type == "full":
         return main_file.read_text(encoding="utf-8")
 
-    if load_type == "linked":
+    if normalized_load_type == "linked":
         if not linked_path:
             raise ValueError("linked_path is required for 'linked' load_type")
         linked_file = (base_dir / linked_path).resolve()
@@ -82,4 +114,4 @@ def progressive_skill_loader(skill_name: str, load_type: str, linked_path: str |
             raise ValueError("linked_path must stay inside the skill directory")
         return linked_file.read_text(encoding="utf-8")
 
-    raise ValueError("load_type must be one of 'frontmatter', 'full', or 'linked'")
+    raise ValueError("load_type must be one of 'frontmatter', 'full', or 'linked' (aliases supported)")

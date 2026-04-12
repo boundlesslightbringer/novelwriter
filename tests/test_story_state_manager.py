@@ -239,6 +239,71 @@ def test_story_state_manager_phase2_batch_relationship_split():
     assert existing_rel_docs[0]["properties"]["emotional_valence"] == "hostile"
 
 
+def test_story_state_manager_phase2_batch_duplicate_logical_ids_collapsed():
+    """Same logical_id twice in one batch must not mark the run as failed (last record wins)."""
+    suffix = uuid.uuid4().hex[:8]
+    char_a = f"char_phase2_dup_a_{suffix}"
+    char_b = f"char_phase2_dup_b_{suffix}"
+    edge_dup = f"rel_phase2_dup_{suffix}"
+
+    state = {
+        "worker_request": {
+            "task": "Persist batch with duplicate logical_ids",
+            "context": {
+                "chapter_context": 8,
+                "nodes_to_add": [
+                    {
+                        "logical_id": char_a,
+                        "node_type": "Character",
+                        "properties": {"name": "A first"},
+                    },
+                    {
+                        "logical_id": char_a,
+                        "node_type": "Character",
+                        "properties": {"name": "A second wins"},
+                    },
+                    {"logical_id": char_b, "node_type": "Character", "properties": {"name": "B stable"}},
+                ],
+                "edges_to_add": [
+                    {
+                        "logical_id": edge_dup,
+                        "edge_type": "KNOWS",
+                        "from": char_a,
+                        "to": char_b,
+                        "properties": {"status": "KNOWS", "acquired_at_chapter": 8, "note": "a"},
+                    },
+                    {
+                        "logical_id": edge_dup,
+                        "edge_type": "KNOWS",
+                        "from": char_a,
+                        "to": char_b,
+                        "properties": {"status": "KNOWS", "acquired_at_chapter": 8, "note": "b wins"},
+                    },
+                ],
+            },
+        }
+    }
+
+    result = run_story_state_manager_subgraph(_StubStoryStateManager(), state)
+    payload = result["latest_worker_result"]["result"]
+    artifacts = payload["artifacts"]
+
+    assert payload["status"] == "success"
+    assert artifacts["status"] == "success"
+    assert artifacts["records_failed"] == []
+    assert char_a in artifacts["records_updated"]
+    assert char_b in artifacts["records_updated"]
+    assert edge_dup in artifacts["records_updated"]
+
+    node_docs = query_kg_nodes.invoke({"query": {"logical_id": char_a}})
+    assert len(node_docs) == 1
+    assert node_docs[0]["properties"]["name"] == "A second wins"
+
+    edge_docs = query_kg_edges.invoke({"query": {"logical_id": edge_dup}})
+    assert len(edge_docs) == 1
+    assert edge_docs[0]["properties"]["note"] == "b wins"
+
+
 def test_story_state_manager_phase2_batch_partial_failure_containment():
     suffix = uuid.uuid4().hex[:8]
     char_a = f"char_phase2_pf_a_{suffix}"
@@ -412,3 +477,121 @@ def test_story_state_manager_phase3_temporal_edge_chain_versioning():
     assert as_of_12[0]["properties"]["emotional_valence"] == "neutral"
     assert len(as_of_13) == 1
     assert as_of_13[0]["properties"]["emotional_valence"] == "hostile"
+
+
+def test_story_state_manager_rejects_blank_edge_endpoints_pre_write():
+    suffix = uuid.uuid4().hex[:8]
+    char_a = f"char_blank_edge_a_{suffix}"
+    char_b = f"char_blank_edge_b_{suffix}"
+    invalid_edge = f"rel_blank_endpoint_{suffix}"
+
+    state = {
+        "worker_request": {
+            "task": "Persist writes with a blank edge endpoint",
+            "context": {
+                "chapter_context": 14,
+                "nodes_to_add": [
+                    {"logical_id": char_a, "node_type": "Character", "properties": {"name": "A"}},
+                    {"logical_id": char_b, "node_type": "Character", "properties": {"name": "B"}},
+                ],
+                "edges_to_add": [
+                    {
+                        "logical_id": invalid_edge,
+                        "edge_type": "KNOWS",
+                        "from": char_a,
+                        "to": "   ",
+                        "properties": {"status": "KNOWS"},
+                    }
+                ],
+            },
+        }
+    }
+
+    result = run_story_state_manager_subgraph(_StubStoryStateManager(), state)
+    payload = result["latest_worker_result"]["result"]
+    artifacts = payload["artifacts"]
+
+    assert payload["status"] == "failed"
+    assert char_a in artifacts["records_updated"]
+    assert char_b in artifacts["records_updated"]
+    assert any(
+        entry["logical_id"] == invalid_edge and entry.get("reason") == "missing_endpoints"
+        for entry in artifacts["records_failed"]
+    )
+
+    edge_docs = query_kg_edges.invoke({"query": {"logical_id": invalid_edge}})
+    assert edge_docs == []
+
+
+def test_story_state_manager_rejects_unsupported_edge_type_pre_write():
+    suffix = uuid.uuid4().hex[:8]
+    char_a = f"char_bad_edge_type_a_{suffix}"
+    char_b = f"char_bad_edge_type_b_{suffix}"
+    invalid_edge = f"rel_bad_type_{suffix}"
+
+    state = {
+        "worker_request": {
+            "task": "Persist writes with unsupported edge type",
+            "context": {
+                "chapter_context": 15,
+                "nodes_to_add": [
+                    {"logical_id": char_a, "node_type": "Character", "properties": {"name": "A"}},
+                    {"logical_id": char_b, "node_type": "Character", "properties": {"name": "B"}},
+                ],
+                "edges_to_add": [
+                    {
+                        "logical_id": invalid_edge,
+                        "edge_type": "MEMBER_OF",
+                        "from": char_a,
+                        "to": char_b,
+                        "properties": {"relationship": "ally"},
+                    }
+                ],
+            },
+        }
+    }
+
+    result = run_story_state_manager_subgraph(_StubStoryStateManager(), state)
+    payload = result["latest_worker_result"]["result"]
+    artifacts = payload["artifacts"]
+
+    assert payload["status"] == "failed"
+    assert any(
+        entry["logical_id"] == invalid_edge and entry.get("reason") == "invalid_edge_type"
+        for entry in artifacts["records_failed"]
+    )
+    assert query_kg_edges.invoke({"query": {"logical_id": invalid_edge}}) == []
+
+
+def test_story_state_manager_surfaces_schema_validation_failures():
+    suffix = uuid.uuid4().hex[:8]
+    valid_node = f"char_schema_valid_{suffix}"
+    invalid_node = f"node_schema_invalid_{suffix}"
+
+    state = {
+        "worker_request": {
+            "task": "Persist writes with one schema-invalid node",
+            "context": {
+                "chapter_context": 16,
+                "nodes_to_add": [
+                    {"logical_id": valid_node, "node_type": "Character", "properties": {"name": "Valid"}},
+                    {"logical_id": invalid_node, "node_type": "StorySeed", "properties": {"name": "Invalid Type"}},
+                ],
+            },
+        }
+    }
+
+    result = run_story_state_manager_subgraph(_StubStoryStateManager(), state)
+    payload = result["latest_worker_result"]["result"]
+    artifacts = payload["artifacts"]
+
+    assert payload["status"] == "failed"
+    assert valid_node in artifacts["records_updated"]
+    assert any(
+        entry["logical_id"] == invalid_node and entry.get("reason") == "schema_validation_failed"
+        for entry in artifacts["records_failed"]
+    )
+    valid_docs = query_kg_nodes.invoke({"query": {"logical_id": valid_node}})
+    invalid_docs = query_kg_nodes.invoke({"query": {"logical_id": invalid_node}})
+    assert len(valid_docs) == 1
+    assert invalid_docs == []

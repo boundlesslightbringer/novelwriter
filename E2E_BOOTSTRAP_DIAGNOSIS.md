@@ -1,6 +1,6 @@
 # E2E bootstrap failure — diagnosis
 
-This document records why the full-stack end-to-end bootstrap test (`test_e2e_full_stack.py`, handoff §5.3) can fail with **no `PlotThread` nodes** in Mongo after turn 1, and what that implies about the system.
+This document records why the full-stack end-to-end bootstrap test (`tests/test_e2e_full_stack.py`, handoff §5.3) can fail with **no `PlotThread` nodes** in Mongo after turn 1, and what that implies about the system.
 
 ## What happens in the failing run
 

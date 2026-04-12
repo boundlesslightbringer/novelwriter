@@ -2,7 +2,7 @@
 Integration test: runs the real writing subagent path (Vertex / Gemini).
 
 Run with output visible:
-  uv run pytest test_writing_subagent.py -s -v -m integration
+  uv run pytest tests/test_writing_subagent.py -s -v -m integration
 """
 
 import json

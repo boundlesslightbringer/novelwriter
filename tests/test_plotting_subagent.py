@@ -2,7 +2,7 @@
 Integration test: runs the real plotting subagent chain (Vertex / Gemini).
 
 Run with output visible:
-  uv run pytest test_plotting_subagent.py -s -v -m integration
+  uv run pytest tests/test_plotting_subagent.py -s -v -m integration
 """
 
 import json

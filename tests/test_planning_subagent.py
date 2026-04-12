@@ -2,7 +2,7 @@
 Integration test: runs the real planning subagent chain (Vertex / Gemini).
 
 Run with output visible:
-  uv run pytest test_planning_subagent.py -s -v -m integration
+  uv run pytest tests/test_planning_subagent.py -s -v -m integration
 """
 
 import json
