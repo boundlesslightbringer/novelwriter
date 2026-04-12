@@ -6,6 +6,9 @@ Run:
 
 Turn-by-turn progress (brain delegations, worker completions, streaming respond text):
   NOVELWRITER_E2E_VERBOSE=1 uv run pytest tests/test_e2e_full_stack.py -s -v -m e2e
+
+Structured trace (JSONL) of stream updates and worker payloads (default ``src/e2e_full_stack_trace.jsonl``):
+  Override with ``NOVELWRITER_E2E_TRACE_FILE=/abs/path/trace.jsonl``.
 """
 
 import os
@@ -17,6 +20,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from src.config import NovelWriterConfig
+from src.e2e_full_stack_trace import E2EFullStackTraceWriter
 from src.orchestrator import GRRMOrchestrator
 from src.world_bible_tools import _get_db, init_kg_db
 
@@ -93,11 +97,17 @@ def _print_graph_progress(orchestrator: GRRMOrchestrator, event_type: str, event
                         print(part.get("text", ""), end="", flush=True)
 
 
-def _log_kg_counts(label: str, db: Any) -> None:
-    parts = []
-    for node_type in _E2E_KG_TYPES_FOR_LOG:
-        n = db.nodes.count_documents({"type": node_type, "valid_to": None})
-        parts.append(f"{node_type}={n}")
+def _snapshot_kg_counts(db: Any) -> dict[str, int]:
+    return {
+        node_type: db.nodes.count_documents({"type": node_type, "valid_to": None})
+        for node_type in _E2E_KG_TYPES_FOR_LOG
+    }
+
+
+def _log_kg_counts(label: str, db: Any, counts: dict[str, int] | None = None) -> None:
+    if counts is None:
+        counts = _snapshot_kg_counts(db)
+    parts = [f"{node_type}={counts.get(node_type, 0)}" for node_type in _E2E_KG_TYPES_FOR_LOG]
     print(f"\n[E2E] {label}: " + ", ".join(parts), flush=True)
 
 
@@ -106,6 +116,7 @@ def _log_turn_footer(
     turn_title: str,
     state: dict[str, Any],
     db: Any,
+    kg_counts: dict[str, int] | None = None,
 ) -> None:
     print(f"\n[E2E] --- End {turn_title} ---", flush=True)
     fr = str(state.get("final_response") or "").strip()
@@ -114,7 +125,7 @@ def _log_turn_footer(
         print(f"[E2E] final_response ({len(fr)} chars): {preview}", flush=True)
     print(f"[E2E] worker_history entries: {len(state.get('worker_history') or [])}", flush=True)
     print(_render_worker_history(state.get("worker_history")), flush=True)
-    _log_kg_counts(f"Mongo after {turn_title}", db)
+    _log_kg_counts(f"Mongo after {turn_title}", db, counts=kg_counts)
     print(flush=True)
 
 
@@ -151,27 +162,38 @@ def _run_turn(
     *,
     turn_title: str,
     db: Any,
+    trace_writer: E2EFullStackTraceWriter,
 ) -> dict:
     run_config = {"configurable": {"thread_id": thread_id}}
     turn_input = _turn_input(user_text)
+
+    trace_writer.turn_start(turn_title=turn_title, user_text=user_text, turn_input=turn_input)
 
     if _e2e_verbose_enabled():
         print(f"\n[E2E] ========== {turn_title} ==========", flush=True)
         print(f"[E2E] User: {user_text!r}", flush=True)
         print("(Live graph stream; disable with unset NOVELWRITER_E2E_VERBOSE)\n", flush=True)
-        for event_type, event_data in orchestrator.graph.stream(
-            turn_input,
-            config=run_config,
-            stream_mode=["messages", "updates"],
-        ):
-            _print_graph_progress(orchestrator, event_type, event_data)
-        print(flush=True)
-        state = dict(orchestrator.graph.get_state(run_config).values)
-        _log_turn_footer(turn_title=turn_title, state=state, db=db)
-        return state
 
-    orchestrator.graph.invoke(turn_input, config=run_config)
-    return orchestrator.graph.get_state(run_config).values
+    for event_type, event_data in orchestrator.graph.stream(
+        turn_input,
+        config=run_config,
+        stream_mode=["messages", "updates"],
+    ):
+        trace_writer.stream_updates(event_type=event_type, event_data=event_data)
+        if _e2e_verbose_enabled():
+            _print_graph_progress(orchestrator, event_type, event_data)
+
+    if _e2e_verbose_enabled():
+        print(flush=True)
+
+    state = dict(orchestrator.graph.get_state(run_config).values)
+    kg_counts = _snapshot_kg_counts(db)
+    trace_writer.turn_end(turn_title=turn_title, state=state, kg_counts=kg_counts)
+
+    if _e2e_verbose_enabled():
+        _log_turn_footer(turn_title=turn_title, state=state, db=db, kg_counts=kg_counts)
+
+    return state
 
 
 @pytest.mark.e2e
@@ -186,6 +208,9 @@ def test_e2e_bootstrap_then_first_scene() -> None:
 
     db = _get_db()
     thread_id = f"e2e-{uuid.uuid4()}"
+    trace_writer = E2EFullStackTraceWriter()
+    trace_writer.session_start(thread_id=thread_id, test_name="test_e2e_bootstrap_then_first_scene")
+    print(f"[E2E] Writing trace to {trace_writer.path.resolve()}", flush=True)
 
     # Turn 1 — bootstrap
     state_after_bootstrap = _run_turn(
@@ -194,6 +219,7 @@ def test_e2e_bootstrap_then_first_scene() -> None:
         BOOTSTRAP_INPUT,
         turn_title="Turn 1 (bootstrap)",
         db=db,
+        trace_writer=trace_writer,
     )
     worker_history_after_bootstrap = state_after_bootstrap.get("worker_history", [])
 
@@ -225,6 +251,7 @@ def test_e2e_bootstrap_then_first_scene() -> None:
         FIRST_SCENE_INPUT,
         turn_title="Turn 2 (first scene)",
         db=db,
+        trace_writer=trace_writer,
     )
     worker_history_after_scene = state_after_scene.get("worker_history", [])
 

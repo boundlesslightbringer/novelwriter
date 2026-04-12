@@ -1,0 +1,238 @@
+(.venv) anonymous-mouse@anonymous-mouse-HP-Pavilion-Gaming-Laptop-15-ec1xxx:~/Projects/novelwriter_coditas/novelwriter (feature/orchestrator-agent)$ NOVELWRITER_E2E_VERBOSE=1 uv run pytest tests/test_e2e_full_stack.py -s -v -m e2e
+================================================== test session starts ===================================================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/anonymous-mouse/Projects/novelwriter_coditas/novelwriter/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/anonymous-mouse/Projects/novelwriter_coditas/novelwriter
+configfile: pyproject.toml
+plugins: langsmith-0.7.23, anyio-4.13.0
+collected 1 item                                                                                                         
+
+tests/test_e2e_full_stack.py::test_e2e_bootstrap_then_first_scene [E2E] Writing trace to /home/anonymous-mouse/Projects/novelwriter_coditas/novelwriter/src/e2e_full_stack_trace.jsonl
+
+[E2E] ========== Turn 1 (bootstrap) ==========
+[E2E] User: 'genre: High Fantasy, themes: legitimacy and the cost of inheritance'
+(Live graph stream; disable with unset NOVELWRITER_E2E_VERBOSE)
+
+
+[Brain] Delegating to: planning_subagent
+[Brain] Task: Run finding-a-seed for novel bootstrap.
+
+[planning_subagent] Completed.
+[planning_subagent] Status: success
+[planning_subagent] Summary: Generated and validated a story seed via the finding-a-seed chain.
+
+[Brain] Delegating to: story_state_manager
+[Brain] Task: Persist accepted records to story state
+
+[story_state_manager] Completed.
+[story_state_manager] Status: success
+[story_state_manager] Summary: Persisted 8 records to the Story State KG.
+
+[Brain] Delegating to: planning_subagent
+[Brain] Task: Run defining-rough-endpoints Pass 1 from the validated seed document.
+
+[planning_subagent] Completed.
+[planning_subagent] Status: success
+[planning_subagent] Summary: Generated defining-rough-endpoints pass 1 artifacts via planning subgraph.
+
+[Brain] Delegating to: character_subagent
+[Brain] Task: Run character-conception in early invocation mode for slot slot_1.
+
+[character_subagent] Completed.
+[character_subagent] Status: success
+[character_subagent] Summary: Executed character-conception in early invocation mode for slot_1, defining the 'Reluctant Tyrant' protagonist.
+
+[Brain] Delegating to: planning_subagent
+[Brain] Task: Run defining-rough-endpoints Pass 2 to refine milestones with character concepts.
+
+[planning_subagent] Completed.
+[planning_subagent] Status: success
+[planning_subagent] Summary: Generated defining-rough-endpoints pass 2 artifacts via planning subgraph.
+
+[Brain] Delegating to: story_state_manager
+[Brain] Task: Persist accepted records to story state
+
+[story_state_manager] Completed.
+[story_state_manager] Status: success
+[story_state_manager] Summary: Persisted 8 records to the Story State KG.
+
+[Brain] Delegating to: planning_subagent
+[Brain] Task: Construct foundational world architecture from the Pass 2 endpoint compass.
+
+[planning_subagent] Completed.
+[planning_subagent] Status: success
+[planning_subagent] Summary: Constructed worldbuilding domains via planning worldbuilding subgraph.
+
+[Brain] Delegating to: planning_subagent
+[Brain] Task: Construct foundational world architecture from the Pass 2 endpoint compass. Retry requirement: Missing quality assessment on creative success.
+
+[planning_subagent] Completed.
+[planning_subagent] Status: success
+[planning_subagent] Summary: Constructed worldbuilding domains via planning worldbuilding subgraph.
+
+[Brain] Delegating to: planning_subagent
+[Brain] Task: Construct foundational world architecture from the Pass 2 endpoint compass. Retry requirement: Missing quality assessment on creative success. Retry requirement: The `location_connections` artifact is malformed, containing an infinite repetitive loop in the 'to' field. Please regenerate with concise and exact node names.
+
+[planning_subagent] Completed.
+[planning_subagent] Status: success
+[planning_subagent] Summary: Constructed worldbuilding domains via planning worldbuilding subgraph.
+
+[Brain] Delegating to: story_state_manager
+[Brain] Task: Persist accepted records to story state
+
+[story_state_manager] Completed.
+[story_state_manager] Status: success
+[story_state_manager] Summary: Persisted 23 records to the Story State KG.
+
+[Brain] Delegating to: character_subagent
+[Brain] Task: Persist accepted records to story state
+
+[character_subagent] Completed.
+[character_subagent] Status: success
+[character_subagent] Summary: Executed character-conception for the protagonist (Vane) and primary antagonists (Hallow and Reeve), aligning them with the themes of legitimacy and inheritance.
+
+[Brain] Delegating to: story_state_manager
+[Brain] Task: Persist accepted records to story state
+
+[story_state_manager] Completed.
+[story_state_manager] Status: success
+[story_state_manager] Summary: Persisted 3 records to the Story State KG.
+
+[Brain] Delegating to: plotting_subagent
+[Brain] Task: Develop an initial plot outline and inciting incident integrating the newly created characters (Vane, High Overseer Hallow, Reeve). Ensure the core conflict heavily explores the themes of legitimacy and the cost of inheritance within a High Fantasy setting.
+
+[plotting_subagent] Completed.
+[plotting_subagent] Status: success
+[plotting_subagent] Summary: Developed an initial plot outline and inciting incident scene parameters for Vane, centering on the themes of blood-bound legitimacy and the parasitic cost of inheritance.
+
+[Brain] Delegating to: plotting_subagent
+[Brain] Task: Develop an initial plot outline and inciting incident integrating the newly created characters (Vane, High Overseer Hallow, Reeve). Ensure the core conflict heavily explores the themes of legitimacy and the cost of inheritance within a High Fantasy setting. Retry requirement: Missing quality assessment on creative success.
+
+[plotting_subagent] Completed.
+[plotting_subagent] Status: success
+[plotting_subagent] Summary: Developed a character-driven scene cycle for Chapter 1, establishing Vane's accidental ascension as Sovereign and his immediate conflict with his revolutionary ideals.
+
+[Brain] Delegating to: plotting_subagent
+[Brain] Task: Develop an initial plot outline and inciting incident integrating the newly created characters (Vane, High Overseer Hallow, Reeve). Ensure the core conflict heavily explores the themes of legitimacy and the cost of inheritance within a High Fantasy setting. Retry requirement: Missing quality assessment on creative success. Retry requirement: Missing quality assessment on creative success.
+
+[plotting_subagent] Completed.
+[plotting_subagent] Status: success
+[plotting_subagent] Summary: Developed a character-driven plot outline and inciting incident for Chapter 1, centering on Vane's ideological betrayal and the biological cost of his inheritance.
+
+[Brain] Delegating to: story_state_manager
+[Brain] Task: Persist accepted records to story state
+
+[story_state_manager] Completed.
+[story_state_manager] Status: success
+[story_state_manager] Summary: Persisted 3 records to the Story State KG.
+
+[Brain] Delegating to: writing_subagent
+[Brain] Task: Draft the opening scene based on the newly persisted plot nodes. Establish the tone for a High Fantasy world and immediately introduce the thematic elements of legitimacy and the heavy cost of inheritance.
+
+[writing_subagent] Completed.
+[writing_subagent] Status: success
+[writing_subagent] Summary: Drafted the opening scene with a full quality pass, establishing Vane's involuntary ascension and the parasitic nature of his inheritance.
+
+[Brain] Delegating to: consequence_subagent
+[Brain] Task: Analyze the ripple effects of Vane activating the Sanguine Font, biologically bonding with the city defense system, and revealing his royal lineage. Audit these events for realism within the established High Fantasy ruleset and generate the structured Knowledge Graph write payload (nodes_to_add, nodes_to_update, etc.) to reflect these major status changes.
+
+[consequence_subagent] Completed.
+[consequence_subagent] Status: success
+[consequence_subagent] Summary: Analyzed the cascade of Vane's biological bonding with the Sanguine Font, auditing the event for magical realism and political plausibility while projecting long-term revolutionary schisms.
+
+[Brain] Delegating to: story_state_manager
+[Brain] Task: Persist accepted records to story state
+
+[story_state_manager] Completed.
+[story_state_manager] Status: success
+[story_state_manager] Summary: Persisted 2 records to the Story State KG.
+The recent scene and its consequences—specifically the revolutionary betrayal and the vitality tithe—have been successfully analyzed and committed to the story's Knowledge Graph without any contradictions. 
+
+We're ready to move forward. Shall I have the plotting subagent outline the next scene, or is there a specific character, thread, or POV you would like to focus on next?
+
+[E2E] --- End Turn 1 (bootstrap) ---
+[E2E] final_response (377 chars): The recent scene and its consequences—specifically the revolutionary betrayal and the vitality tithe—have been successfully analyzed and committed to the story's Knowledge Graph without any contradictions. 
+
+We're ready to move forward. Shall I have the plotting subagent outline the next scene, or is there a specific character, thread, or POV you would like to focus on next?
+[E2E] worker_history entries: 19
+1. planning_subagent -> success: Generated and validated a story seed via the finding-a-seed chain.
+2. story_state_manager -> success: Persisted 8 records to the Story State KG.
+3. planning_subagent -> success: Generated defining-rough-endpoints pass 1 artifacts via planning subgraph.
+4. character_subagent -> success: Executed character-conception in early invocation mode for slot_1, defining the 'Reluctant Tyrant' protagonist.
+5. planning_subagent -> success: Generated defining-rough-endpoints pass 2 artifacts via planning subgraph.
+6. story_state_manager -> success: Persisted 8 records to the Story State KG.
+7. planning_subagent -> success: Constructed worldbuilding domains via planning worldbuilding subgraph.
+8. planning_subagent -> success: Constructed worldbuilding domains via planning worldbuilding subgraph.
+9. planning_subagent -> success: Constructed worldbuilding domains via planning worldbuilding subgraph.
+10. story_state_manager -> success: Persisted 23 records to the Story State KG.
+11. character_subagent -> success: Executed character-conception for the protagonist (Vane) and primary antagonists (Hallow and Reeve), aligning them with the themes of legitimacy and inheritance.
+12. story_state_manager -> success: Persisted 3 records to the Story State KG.
+13. plotting_subagent -> success: Developed an initial plot outline and inciting incident scene parameters for Vane, centering on the themes of blood-bound legitimacy and the parasitic cost of inheritance.
+14. plotting_subagent -> success: Developed a character-driven scene cycle for Chapter 1, establishing Vane's accidental ascension as Sovereign and his immediate conflict with his revolutionary ideals.
+15. plotting_subagent -> success: Developed a character-driven plot outline and inciting incident for Chapter 1, centering on Vane's ideological betrayal and the biological cost of his inheritance.
+16. story_state_manager -> success: Persisted 3 records to the Story State KG.
+17. writing_subagent -> success: Drafted the opening scene with a full quality pass, establishing Vane's involuntary ascension and the parasitic nature of his inheritance.
+18. consequence_subagent -> success: Analyzed the cascade of Vane's biological bonding with the Sanguine Font, auditing the event for magical realism and political plausibility while projecting long-term revolutionary schisms.
+19. story_state_manager -> success: Persisted 2 records to the Story State KG.
+
+[E2E] Mongo after Turn 1 (bootstrap): PlotThread=8, Payoff=7, Faction=5, Location=5, Culture=3, Event=5, MagicSystem=2, Character=4, Chapter=0
+
+FAILED
+
+======================================================== FAILURES ========================================================
+__________________________________________ test_e2e_bootstrap_then_first_scene ___________________________________________
+
+    @pytest.mark.e2e
+    @pytest.mark.integration
+    def test_e2e_bootstrap_then_first_scene() -> None:
+        config = NovelWriterConfig(max_brain_iterations=80, max_rejection_budget=3)
+        orchestrator = GRRMOrchestrator(
+            config=config,
+            worker_impls=GRRMOrchestrator.real_worker_impls(),
+            checkpointer=InMemorySaver(),
+        )
+    
+        db = _get_db()
+        thread_id = f"e2e-{uuid.uuid4()}"
+        trace_writer = E2EFullStackTraceWriter()
+        trace_writer.session_start(thread_id=thread_id, test_name="test_e2e_bootstrap_then_first_scene")
+        print(f"[E2E] Writing trace to {trace_writer.path.resolve()}", flush=True)
+    
+        # Turn 1 — bootstrap
+        state_after_bootstrap = _run_turn(
+            orchestrator,
+            thread_id,
+            BOOTSTRAP_INPUT,
+            turn_title="Turn 1 (bootstrap)",
+            db=db,
+            trace_writer=trace_writer,
+        )
+        worker_history_after_bootstrap = state_after_bootstrap.get("worker_history", [])
+    
+        expected_types = [
+            "PlotThread",
+            "Payoff",
+            "Faction",
+            "Location",
+            "Culture",
+            "Event",
+            "MagicSystem",
+            "Character",
+        ]
+        for node_type in expected_types:
+            count = db.nodes.count_documents({"type": node_type, "valid_to": None})
+            assert count > 0, f"Missing {node_type} nodes after bootstrap"
+    
+>       assert 8 <= len(worker_history_after_bootstrap) <= 12, (
+            f"Unexpected worker_history length after bootstrap: {len(worker_history_after_bootstrap)}"
+        )
+E       AssertionError: Unexpected worker_history length after bootstrap: 19
+E       assert 19 <= 12
+E        +  where 19 = len([{'context': {'chapter_context': 1, 'genre': 'High Fantasy', 'skill': 'finding-a-seed', 'themes': ['legitimacy', 'the cost of inheritance']}, 'result': {'artifacts': {'candidate_seeds_log': [{'failure_point': 'While visually striking, it lacks the complex political and ideological layers found in the Character-First candidate.', 'method': 'Vivid Image', 'seed_statement': 'A young heir stands in a flooded ancestral vault, clutching a crown that glows white-hot, searing their palms as the rising water begins to hiss against the metal.', 'status': 'Rejected', ...}, {'failure_point': 'Feels more like a world mechanic than an active, compelling moment that can sustain a full narrative arc.', 'method': 'What If?', 'seed_statement': 'What if the rightful heir to a throne was defined by their ability to survive a ritual that drains the life of their predecessor, turning the act of inheritance into a literal sacrifice of the parent?', 'status': 'Rejected', ...}, {'failure_point': 'n/a', 'method': 'Character-First', 'seed_statement': 'An anti-monarchist revolutionary discovers they are the only biological match for a sentient, blood-locked defense system, forcing them to claim the throne a...'s death.", 'name': 'The Blood-Lineage Mystery', 'originating_chapter': 0, 'status': 'Active'}}, {'chapter': 1, 'logical_id': 'payoff_5', 'node_type': 'Payoff', 'properties': {'description': "The prologue's description of the Aegis going dormant upon a royal death establishes the 'biological lock' mechanism, which is the direct setup for the system's violent reawakening in M1.", 'planted_in_chapter': 0, 'resolution_status': 'Pending', 'type': 'Foreshadowing'}}, {'chapter': 1, 'logical_id': 'payoff_6', 'node_type': 'Payoff', 'properties': {'description': "The 'visceral, parasitic nature' and mechanical 'hunger' of the defense system established in the prologue foreshadows the lethal 'auto-purge' protocol that targets civilians in M2.", 'planted_in_chapter': 0, 'resolution_status': 'Pending', 'type': 'Foreshadowing'}}, ...]}, 'result': {'artifacts': {'contradiction_record': {'can_proceed': True, 'contradictions': [], 'has_contradictions': False}, 'errors': [], 'operation': 'write', 'records_failed': [], ...}, 'follow_up_questions': [], 'recommended_next_worker': None, 'status': 'success', ...}, 'task': 'Persist accepted records to story state', 'worker': 'story_state_manager'}, ...])
+
+tests/test_e2e_full_stack.py:240: AssertionError
+--------------------------------------------------- Captured log call ----------------------------------------------------
+WARNING  google_genai.types:types.py:7900 Warning: there are non-text parts in the response: ['function_call'], returning concatenated text result from text parts. Check the full candidates.content.parts accessor to get the full model response.
+================================================ short test summary info =================================================
+FAILED tests/test_e2e_full_stack.py::test_e2e_bootstrap_then_first_scene - AssertionError: Unexpected worker_history length after bootstrap: 19
+============================================= 1 failed in 1325.46s (0:22:05) =============================================

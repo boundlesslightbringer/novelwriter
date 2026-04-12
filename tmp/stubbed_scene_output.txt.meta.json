@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-04-12T18:03:56.732473+00:00",
+  "trace_source": "src/e2e_full_stack_trace.jsonl",
+  "worker_history_count": 13,
+  "writing_summary": "Drafted the opening scene, introducing Vane and the Sanguine Font while establishing the cost of inheritance.",
+  "polished_scene_output": "tmp/stubbed_scene_output.polished.txt",
+  "second_pass_polish": {
+    "enabled": true,
+    "status": "failed",
+    "polish_summary": "Missing required professional-writing-techniques context fields: pov_character_id.",
+    "rewrite_summary": "",
+    "warning": "Professional-techniques pass failed; keeping first-pass scene."
+  }
+}

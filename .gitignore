@@ -11,3 +11,6 @@ wheels/
 
 # uv 
 uv.lock
+
+# E2E integration test JSONL trace (regenerated each run)
+src/e2e_full_stack_trace.jsonl
