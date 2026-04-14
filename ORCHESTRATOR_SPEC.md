@@ -1,11 +1,20 @@
 # Novel Writer — Orchestrator-Worker Design Specification
 
-**Version:** 4.0 — FINAL IMPLEMENTATION REFERENCE
-**Branch:** `feature/orchestrator-agent`
-**Status:** Ready for implementation
+**Version:** 4.1 — CURRENT IMPLEMENTATION REFERENCE
+**Branch:** `main` (or current working branch)
+**Status:** Implemented; kept in sync with `src/`
 **Supersedes:** v3.0
 
 ---
+
+## Changelog (v4.1)
+
+This revision updates the spec to match the current codebase behavior:
+
+- **Brain sequencing**: `BrainNode` includes a deterministic bootstrap sequencer and an explicit MVP mode.
+- **Internal graphs**: multiple workers dispatch into internal chains/subgraphs (not only character integration).
+- **Persistence mapping**: accepted creative artifacts are mapped into write payloads by `PersistPayloadMapper` before routing to `story_state_manager`.
+- **Resolution flow**: contradiction handling is implemented as a tool-free ANALYSE step and a deterministic IMPLEMENT subgraph.
 
 ## Changelog from v3.0
 
@@ -72,13 +81,13 @@ This document is the authoritative implementation reference for the Novel Writer
 | Node | Type | KG access | Skills |
 |---|---|---|---|
 | `brain` | Orchestrator | None | — |
-| `planning_subagent` | Worker | Read-only | finding-a-seed, defining-rough-endpoints, worldbuilding, research-integration |
-| `character_subagent` | Worker | Read-only | character-conception, character-creation, character-voice-differentiation, character-desire-network → character-knowledge-expansion + character-relationship-matrix (internal chain) |
-| `plotting_subagent` | Worker | Read-only | gardener-plotting-system, multiple-pov-structure, braided-narrative-technique, conflict-layering, plot-thread-tracking |
-| `writing_subagent` | Worker | Read-only | scene-construction, pov-consistency-maintenance, pacing, layering-history-and-legend, professional-writing-techniques |
-| `consequence_subagent` | Worker | Read-only | consequence-cascade-implementation, balancing-realism-and-fantasy |
-| `story_state_manager` | Worker | Full (R+W) | All KG reads and writes |
-| `resolution_subagent` | Worker | Write subset | contradiction-resolution (ANALYSE + IMPLEMENT) |
+| `planning_subagent` | Worker | Read-only | Skills are executed via internal chain/subgraphs where applicable: `finding-a-seed` (internal chain), `defining-rough-endpoints` (internal subgraph), `worldbuilding` (internal subgraph), `research-integration` (direct skill load) |
+| `character_subagent` | Worker | Read-only | `character-conception` (direct skill load), `character-creation` (internal subgraph), `character-voice-differentiation` (direct skill load), `character-integration` (internal chain using `character-desire-network` → `character-knowledge-expansion` + `character-relationship-matrix`) |
+| `plotting_subagent` | Worker | Read-only | `gardener-plotting-system` (internal subgraph); other plotting skills use direct skill load |
+| `writing_subagent` | Worker | Read-only | `pov-consistency-maintenance` (internal chain), `professional-writing-techniques` (internal subgraph); other writing skills use direct skill load |
+| `consequence_subagent` | Worker | Read-only | `consequence-cascade-implementation` (internal subgraph), `balancing-realism-and-fantasy` (internal chain) |
+| `story_state_manager` | Worker | Full (R+W) | Persistence is handled by an internal subgraph that validates payloads, runs contradiction detection, and writes nodes then edges |
+| `resolution_subagent` | Worker | Full (R+W, limited tool set) | Contradiction handling via internal subgraph: tool-free ANALYSE, then deterministic IMPLEMENT (plan → execute → finalize) |
 | `respond` | Terminal | None | — |
 
 ### 3.2 Full topology diagram
@@ -114,11 +123,14 @@ All conditional routing lives in `route_from_brain`. Every worker has one uncond
 |---|---|---|---|---|
 | `messages` | `list[BaseMessage]` | `add_messages` | No | Full conversation history |
 | `iteration_count` | `int` | Last write wins | Yes → 0 | Brain visits in current turn |
+| `rejection_count` | `int` | Last write wins | Yes → 0 | Reject budget counter for creative-quality re-delegations in current turn |
 | `final_response` | `str \| None` | Last write wins | Yes → None | Set by brain on respond/clarify |
 | `active_worker` | `str \| None` | Last write wins | Yes → None | Worker brain has delegated to |
 | `worker_request` | `dict \| None` | Last write wins | Yes → None | `{task, context, reasoning}` |
 | `latest_worker_result` | `dict \| None` | Last write wins | Yes → None | Most recent worker output |
 | `worker_history` | `list[dict]` | `operator.add` | No | Full audit trail across session |
+| `mvp_mode` | `bool` | Last write wins | No (defaults false if absent) | Enables deterministic MVP sequencer in `BrainNode` |
+| `mvp_requirements` | `dict \| None` | Last write wins | No (defaults None if absent) | Optional user-supplied MVP constraints (genre/themes/chapter_context/etc.) |
 
 ### 4.2 Why `latest_worker_result` resets per turn
 
@@ -140,12 +152,14 @@ class BrainDecision(BaseModel):
     action             : Literal["delegate", "respond", "clarify"]
     worker             : Literal[<VALID_WORKERS>] | None
     task               : str | None
-    context            : dict | None
+    context            : dict
     response           : str | None
     quality_assessment : QualityVerdict | None  # None for infrastructure workers
 ```
 
 `quality_assessment` is populated when reviewing creative artifacts. It is always `None` after `story_state_manager` and `resolution_subagent` — those are infrastructure workers, not creative.
+
+**Fallback parsing schema:** if the LLM fails to parse nested `QualityVerdict`, the brain retries with a flat fallback schema (`BrainDecisionFallback`) that uses `quality_verdict` + `quality_reason`, then re-hydrates `QualityVerdict` when possible. This is implemented in `BrainNode._invoke_decision_model`.
 
 ### 5.2 Three-layer prompt construction
 
@@ -177,31 +191,40 @@ Total per brain invocation (excluding message history): ~1,285–1,585 tokens
 
 Layer 3 is injected as a `HumanMessage` that is not appended to `state["messages"]`. It is machine-facing context consumed by the structured LLM call but never visible to the user and never accumulates across turns.
 
+### 5.2.1 Deterministic “autopilot” decision paths (before the freeform brain LLM call)
+
+Before calling the LLM for an unconstrained decision, `BrainNode` can take one of these deterministic paths:
+
+- **Bootstrap kickoff + progression sequencer**: when the user provides explicit `genre:` and `themes:` and there is no prior worker result, the brain kicks off `planning_subagent` with `finding-a-seed`, then advances through bootstrap milestones deterministically based on `worker_history` (Pass 1 → early character concept loop → Pass 2 → persist → worldbuilding, etc.).
+- **MVP sequencer**: when `state.mvp_mode` is truthy, the brain runs a fixed worker sequence (planning → character → plotting → writing), persisting via `story_state_manager` when `PersistPayloadMapper` yields a write payload.
+
 ### 5.3 Quality gate decision tree
 
 ```
 latest_worker_result received
   │
-  ├── worker == story_state_manager or resolution_subagent?
-  │    └── YES → skip quality gate entirely; continue workflow
+  ├── worker in {story_state_manager, resolution_subagent}?
+  │    └── YES → skip creative quality gate; apply infrastructure routing overrides
   │
   ├── status == "failed"?    → action="respond", surface failure to user
   ├── status == "need_input"?→ action="clarify", relay follow_up_questions
   │
   └── status == "success"
-       ├── artifacts empty or missing expected keys?
-       │    └── verdict="reject" → re-delegate same worker (see reject budget)
-       ├── artifacts not addressing the task?
-       │    └── verdict="needs_clarification" → action="clarify"
-       └── artifacts well-formed and task-relevant?
-            └── verdict="accept"
-                 ├── structured records present? → delegate story_state_manager
-                 └── no persist needed?          → action="respond"
+       ├── decision.quality_assessment missing/invalid?
+       │    └── verdict="reject" (default) → re-delegate same worker (see reject budget)
+       ├── verdict == "needs_clarification"?
+       │    └── action="clarify" (brain supplies a short question set)
+       ├── verdict == "reject"?
+       │    ├── rejection_count < max_rejection_budget → re-delegate same worker + annotate context with rejection reason
+       │    └── rejection_count >= max_rejection_budget → action="clarify" (escalate with a user decision)
+       └── verdict == "accept"
+            ├── PersistPayloadMapper yields write payload? → delegate story_state_manager with nodes/edges lists
+            └── No payload → proceed to next creative step (or respond)
 ```
 
 ### 5.4 Reject budget
 
-The brain may reject and re-delegate to the same worker **at most 2 times** per task before escalating to the user. On the third failure, `action="respond"` surfaces the issue. This prevents silent correction loops consuming the iteration budget without user awareness.
+The brain may reject and re-delegate to the same worker **at most 2 times** per task before escalating. On budget exhaustion, escalation is `action="clarify"` with short decision questions (not `respond`). This prevents silent correction loops while keeping the user in control of the next move.
 
 ### 5.5 Operating rules (encoded in brain.md)
 
@@ -284,6 +307,12 @@ respond                    ✗           ✗       ✗       ✗       ✗      
 ```
 
 Creative workers have `query_kg_nodes` and `query_kg_edges` — read-only — and self-fetch all KG context they need rather than receiving pre-fetched excerpts from the brain.
+
+### 7.1 Internal execution notes (chains/subgraphs)
+
+- **Dispatch is per worker**: the brain routes only to the top-level worker ids in `VALID_WORKERS`.
+- **Workers may internally branch**: a worker can detect a request (usually via `context.skill` / `context.operation` / task text) and run an internal chain/subgraph instead of the generic `create_agent` loop. This is how bootstrap-critical paths are kept smaller and more reliable.
+- **`resolution_subagent` is subgraph-only**: it is constructed with `build_agent=False` and always runs its internal subgraph (tool-free ANALYSE; IMPLEMENT plan then deterministic writes with its limited tool set).
 
 ---
 
@@ -908,7 +937,7 @@ Fallback if `response_format` is not supported: use `llm.with_structured_output(
 
 `multiple-pov-structure`, `braided-narrative-technique`, and `plot-thread-tracking` reconstruct the chapter log from Chapter nodes that must be sorted by `properties.chapter_number`. `query_kg_nodes` does not guarantee ordering. The skill files instruct workers to sort after retrieval, but this is prompt-enforced only.
 
-**Recommended:** Add a `sort` parameter to `query_kg_nodes` in `world_bible_tools.py` — e.g. passing `sort=[("properties.chapter_number", 1)]` to the MongoDB `find` call. This makes the ordering reliable regardless of LLM behaviour.
+**Implemented:** `query_kg_nodes` and `query_kg_edges` already accept an optional `sort` parameter. For any chronology-sensitive analysis, use `sort={"properties.chapter_number": 1}` (or an equivalent stable key) at the tool-call boundary so ordering is reliable regardless of LLM behavior.
 
 ### 13.7 as_of_chapter in all KG queries
 
@@ -942,16 +971,21 @@ The three prompt-building functions in §10.3 assemble the skill file content an
 ```python
 def build_desire_prompt(kg_context: dict) -> str:
     skill_content = progressive_skill_loader(
-        "character-desire-network", "full"
+        skill_name="character-desire-network",
+        load_type="full",
     )
     return f"{skill_content}\n\n## KG Context\n{json.dumps(kg_context['for_desire_step'])}"
 ```
 
 Each step receives only the KG data it needs — desire step receives character and faction nodes; knowledge step receives character nodes and existing KNOWS edges; relationship step receives character nodes and existing RELATIONSHIP edges.
 
+**Tool signature note:** `progressive_skill_loader(skill_name: str, load_type: str, linked_path: str | None = None)` where `load_type` is one of `frontmatter`, `full`, or `linked` (aliases supported).
+
 ### 13.12 Integration chain placement in character_subagent
 
 `character_subagent` must detect `skill: "character-integration"` in `worker_request.context` and branch into `run_integration_chain(kg_context)` rather than the normal `progressive_skill_loader` path. The existing `BaseWorkerSubagent` invocation pattern handles other skills; the integration chain is a special case that bypasses the single-skill loader pattern.
+
+**Skill alias note:** `src/tools.py` maintains `SKILL_ALIASES` (including a legacy mapping of `character-integration` → `character-integration-with-plot`). The current implementation of `run_integration_chain` does **not** rely on that legacy monolithic skill; it loads the three chain-step skills directly (`character-desire-network`, `character-knowledge-expansion`, `character-relationship-matrix`).
 
 **Update:** `character_subagent` was the first worker with an explicit internal chain.
 **Other workers now also branch into internal subgraphs or chains** (for example
@@ -1016,13 +1050,66 @@ Without this instruction, the brain will pass `pov_character_id` but omit `simul
           ↓
       [brain: delegate resolution_subagent, mode: "IMPLEMENT", user_decision in context]
           ↓
-      [resolution_subagent: executes targeted KG writes, closes Module 5.3 record,
-       returns RESOLVED + re_issue_signal]
+      [resolution_subagent: builds an IMPLEMENT plan, executes targeted KG updates,
+       updates the Contradiction node, returns RESOLVED + re_issue_signal]
           ↓
       [brain: re-delegate original blocked write to story_state_manager]
 ```
 
-`resolution_subagent` has write access but not `detect_kg_contradiction` or `init_kg_db` — it implements targeted fixes, not gates or initialisation. Partial writes on IMPLEMENT failure are not committed; the worker returns `RESOLUTION_FAILED` and the brain surfaces the failure to the user.
+### 14.1 Brain → resolution_subagent payload (ANALYSE)
+
+When `story_state_manager` returns `status: "blocked"`, the brain overrides any freeform decision and delegates `resolution_subagent` with this context shape:
+
+```json
+{
+  "mode": "ANALYSE",
+  "contradiction_record": { "...": "from story_state_manager.artifacts.contradiction_record" },
+  "blocked_write": {
+    "write_type": "story_state_manager",
+    "proposed_context": { "...": "the exact persistence context to re-issue later" }
+  },
+  "prefetched_docs": []
+}
+```
+
+### 14.2 resolution_subagent → brain artifacts (ANALYSE)
+
+On success, ANALYSE returns top-level artifacts containing a user-relayable briefing and options:
+
+```json
+{
+  "mode": "ANALYSE",
+  "contradiction_id": "optional_id_string",
+  "briefing": "plain-language prose safe to show the user verbatim",
+  "resolution_options": [{ "option_id": "A", "label": "", "description": "" }],
+  "recommended_option": "A",
+  "recommendation_rationale": "one sentence"
+}
+```
+
+### 14.3 resolution_subagent → brain artifacts (IMPLEMENT)
+
+On success, IMPLEMENT returns `artifacts.resolution_result` including a re-issue signal. The brain uses the saved `blocked_write.proposed_context` to re-delegate to `story_state_manager`:
+
+```json
+{
+  "resolution_result": {
+    "mode": "IMPLEMENT",
+    "status": "RESOLVED",
+    "contradiction_id": "id_from_input",
+    "resolution_type": "Resolved",
+    "writes_executed": [],
+    "module_5_3_updated": true,
+    "re_issue_signal": {
+      "action": "RE_ISSUE_BLOCKED_WRITE",
+      "originating_write_type": "story_state_manager",
+      "note": "Resolution complete. Re-issue the blocked write."
+    }
+  }
+}
+```
+
+`resolution_subagent` has write access but not `detect_kg_contradiction` or `init_kg_db` — it implements targeted fixes, not gates or initialisation. IMPLEMENT runs as a subgraph: it plans (no tools), then executes deterministic KG updates. On any write failure it halts and returns `status: "failed"` with `RESOLUTION_FAILED` details; it must not continue writing after a failed write.
 
 ---
 
@@ -1037,60 +1124,65 @@ These databases must never share a name. The checkpoint store contains raw seria
 
 ---
 
-## 16. File Change Summary
+## 16. Key Implementation Files (v4.1)
 
-### New files
+This spec is kept consistent with the following code and prompt entry points.
 
-| File | Description |
+### 16.1 Orchestrator and state
+
+| File | Role |
 |---|---|
-| `src/state.py` | `OrchestratorState`, `BrainDecision`, `QualityVerdict`, `VALID_WORKERS` |
-| `src/brain.py` | `BrainNode` class with quality gate and Layer 3 context construction |
-| `src/orchestrator.py` | `GRRMOrchestrator`, `route_from_brain`, `respond_node` |
-| `src/prompts/brain.md` | Brain system prompt — static worker registry; character_subagent card reflects integration chain |
-| `src/prompts/story_state_manager.md` | Renamed from worldbiblemanager.md; add batch write pattern and dual register pattern |
-| `src/character_integration_chain.py` | `build_integration_chain`, Pydantic schemas (`DesireNetwork`, `KnowledgeExpansionOutput`, `RelationshipMatrixOutput`), `build_desire_prompt`, `build_knowledge_prompt`, `build_relationship_prompt` |
+| `main.py` | Terminal REPL; constructs per-turn input and streams graph output |
+| `src/orchestrator.py` | `GRRMOrchestrator` graph wiring; `route_from_brain`; checkpointer setup |
+| `src/state.py` | `OrchestratorState`, `BrainDecision` (+ fallback), `VALID_WORKERS` |
+| `src/config.py` | `NovelWriterConfig` (iteration/rejection budgets, Mongo DB names, LLM overrides) |
 
-### Modified files
+### 16.2 Brain node and persistence mapping
 
-| File | What changes |
+| File | Role |
 |---|---|
-| `src/agents/workers.py` | `WorldBibleManager` → `StoryStateManager`; all creative workers gain `query_kg_nodes` + `query_kg_edges` in tool lists; `character_subagent` invokes integration chain on `skill: "character-integration"` |
-| `src/agents/base.py` | Tool list is now meaningful for access control; verify `create_agent` import resolves |
-| `src/config.py` | Add `mongodb_checkpoint_db_name`; add `max_rejection_budget: int = 2`; set `max_brain_iterations` default to 15 |
-| `main.py` | Import `GRRMOrchestrator`; reset `latest_worker_result` per turn; fix `worker_request` None-safety in debug output |
-| `src/prompts/planning_subagent.md` | Add Story State Access section |
-| `src/prompts/character_subagent.md` | Add Story State Access section; document integration chain invocation pattern |
-| `src/prompts/plotting_subagent.md` | Add Story State Access section; note Chapter node sort requirement |
-| `src/prompts/writing_subagent.md` | Add Story State Access section; note voice profile co-location |
-| `src/prompts/consequence_subagent.md` | Add Story State Access section |
+| `src/brain.py` | `BrainNode`: bootstrap sequencer, MVP sequencer, quality gate, infrastructure overrides |
+| `src/brain_persistence_mapper.py` | `PersistPayloadMapper`: builds `nodes_to_add/nodes_to_update/edges_to_add/edges_to_update` payloads from artifacts |
+| `src/bootstrap_artifact_audit.py` | Bootstrap artifact heuristics used by tracing/tests |
 
-### Skill files — rewritten (all in `skills/` directory)
+### 16.3 Worker dispatch and internal chains/subgraphs
 
-| Subagent | Skills |
+| File | Role |
 |---|---|
-| Planning | finding-a-seed, defining-rough-endpoints, worldbuilding, research-integration |
-| Character | character-conception, character-creation, character-voice-differentiation, character-desire-network, character-knowledge-expansion, character-relationship-matrix |
-| Plotting | gardener-plotting-system, multiple-pov-structure, braided-narrative-technique, conflict-layering, plot-thread-tracking |
-| Writing | scene-construction, pov-consistency-maintenance, pacing, layering-history-and-legend, professional-writing-techniques |
-| Consequence | consequence-cascade-implementation, balancing-realism-and-fantasy |
+| `src/agents/base.py` | `BaseWorkerSubagent` and shared `WorkerResponse` contract |
+| `src/agents/workers.py` | Worker classes and dispatch rules to internal chains/subgraphs |
+| `src/planning_seed_chain.py` | planning: `finding-a-seed` chain |
+| `src/planning_rough_endpoints_subgraph.py` | planning: `defining-rough-endpoints` subgraph |
+| `src/planning_worldbuilding_subgraph.py` | planning: `worldbuilding` subgraph |
+| `src/character_creation_subgraph.py` | character: `character-creation` subgraph |
+| `src/character_integration_chain.py` | character: `character-integration` chain (3-step) |
+| `src/plotting_gardener_subgraph.py` | plotting: `gardener-plotting-system` subgraph |
+| `src/writing_pov_consistency_chain.py` | writing: `pov-consistency-maintenance` chain |
+| `src/writing_professional_techniques_subgraph.py` | writing: `professional-writing-techniques` subgraph |
+| `src/consequence_cascade_subgraph.py` | consequence: `consequence-cascade-implementation` subgraph |
+| `src/consequence_realism_chain.py` | consequence: `balancing-realism-and-fantasy` chain |
 
-**Note:** `character-integration-with-plot` is superseded by the three-skill chain (`character-desire-network`, `character-knowledge-expansion`, `character-relationship-matrix`) plus the `character_integration_chain.py` implementation. The original file is deleted.
+### 16.4 Persistence and resolution subgraphs (infrastructure)
 
-### Deleted files
-
-| File | Reason |
+| File | Role |
 |---|---|
-| `src/prompts/worldbiblemanager.md` | Superseded by `story_state_manager.md` |
-| `skills/character-integration-with-plot/SKILL.md` | Superseded by three-skill chain |
+| `src/story_state_manager_subgraph.py` | Persistence subgraph: validate → contradiction check → write nodes → write edges → verify |
+| `src/resolution_subgraph.py` | Resolution subgraph: ANALYSE (tool-free) and IMPLEMENT (plan → deterministic updates) |
 
-### Untouched files
+### 16.5 MongoDB KG tools (runtime contract)
 
-| File | Reason |
+| File | Role |
 |---|---|
-| `src/tools.py` | `progressive_skill_loader` unchanged |
-| `src/world_bible_tools.py` | KG tools unchanged |
-| `src/kg_models.py` | Schema unchanged |
-| `src/prompts/resolution_subagent.md` | Unchanged |
+| `src/world_bible_tools.py` | KG tools: query/add/update nodes and edges; contradiction detection gate |
+| `src/kg_models.py` | Pydantic schemas for KG tool args |
+
+### 16.6 System prompts
+
+| File | Role |
+|---|---|
+| `src/prompts/brain.md` | Brain policies: quality gate, reject budget, persist-before-continue, contradiction routing |
+| `src/prompts/story_state_manager.md` | Persistence worker rules (batch writes, dual register, contradiction detection) |
+| `src/prompts/resolution_subagent.md` | Resolution worker top-level contract (subgraph-driven) |
 
 ---
 
